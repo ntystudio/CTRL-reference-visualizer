@@ -1,0 +1,24 @@
+﻿{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Ctrl Level Reference Viewer",
+	"Description": "Visualize references to actors & components in a level",
+	"Category": "Other",
+	"CreatedBy": "NTY Studios",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"EnabledByDefault": true,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "CtrlLevelReferenceViewer",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}

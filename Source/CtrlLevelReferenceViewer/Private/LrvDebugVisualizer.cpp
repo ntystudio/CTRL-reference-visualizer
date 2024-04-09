@@ -17,6 +17,11 @@
 
 void FLrvDebugVisualizerCache::Invalidate()
 {
+	if (bCached || Outgoing.Num() > 0 || Incoming.Num() > 0)
+	{
+		auto const bDebugEnabled = GetDefault<ULrvSettings>()->bDebugEnabled;
+		UE_CLOG(bDebugEnabled, LogLrv, Log, TEXT("Invalidating cache..."));
+	}
 	Target = nullptr;
 	Component = nullptr;
 	Outgoing.Reset();
@@ -50,7 +55,13 @@ TSet<UObject*> FLrvDebugVisualizerCache::GetValidCached(bool const bIsOutgoing)
 
 void FLrvDebugVisualizerCache::FillReferences(UObject* InTarget, const UActorComponent* InComponent, bool const bIsOutgoing)
 {
-	if (!IsValid(InTarget) || !IsValid(InComponent)) { return; }
+	if (!IsValid(InTarget) || !IsValid(InComponent))
+	{
+		Invalidate();
+		return;
+	}
+	auto const bDebugEnabled = GetDefault<ULrvSettings>()->bDebugEnabled;
+	UE_CLOG(bDebugEnabled, LogLrv, Log, TEXT("FillReferences cache... Target %s Component %s | %s"), *GetNameSafe(InTarget), *GetNameSafe(InComponent), bIsOutgoing ? TEXT("Outgoing") : TEXT("Incoming"));
 	TSet<UObject*> Visited;
 	FLrvRefCollection::FindRefs(Target.Get(), Visited, bIsOutgoing);
 	auto&& CachedItems = bIsOutgoing ? Outgoing : Incoming;
@@ -67,6 +78,7 @@ void FLrvDebugVisualizerCache::FillReferences(UObject* InTarget, const UActorCom
 
 	if (!bHadValidItems)
 	{
+		UE_CLOG(bDebugEnabled, LogLrv, Log, TEXT("FillReferences Cache has %d valid items."), CachedItems.Num());
 		bHadValidItems = CachedItems.Num() > 0;
 	}
 }

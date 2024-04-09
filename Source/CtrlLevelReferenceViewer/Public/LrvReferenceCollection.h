@@ -32,5 +32,5 @@ public:
 	static void FindInRefs(const UObject* Target, TSet<UObject*>& Visited);
 	
 	static FLrvMenuItem MakeMenuEntry(const UObject* Object);
-	static bool CanDisplayReference(const UObject* Object);
+	static bool CanDisplayReference(const UObject* Target, const UObject* Object);
 };

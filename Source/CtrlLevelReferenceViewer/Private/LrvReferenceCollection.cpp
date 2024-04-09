@@ -189,58 +189,60 @@ static void RecursiveSearch(
 {
 	if (!IsValid(Target)) { return; }
 	if (Visited.Contains(Target)) { return; }
+	auto NumVisited = Visited.Num();
+	Visited.Add(Target);
 	auto bDebugEnabled = Settings->bDebugEnabled;
 	auto Indent = FString::ChrN(Depth * 1, TEXT('|'));
 	auto Name = FString::Printf(TEXT("%s (%s)"), *GetNameSafe(Target), Target->GetClass() ? *Target->GetClass()->GetName() : TEXT("null"));
 	UE_CLOG(bDebugEnabled, LogLrv, Log, TEXT("%s RecursiveSearch for %s [Num %d] >>"), *Indent,  *Name, Visited.Num());
-	auto NumVisited = Visited.Num();
-	Visited.Add(Target);
-	auto TargetClass = Target->GetClass();
-	if (!IsValid(TargetClass)) { return; }
-
-	// iterate over object properties
-	for (TFieldIterator<FObjectPropertyBase> PropIt(TargetClass, EFieldIterationFlags::IncludeSuper); PropIt; ++PropIt)
-	{
-		if (const auto Prop = CastField<FSoftObjectProperty>(*PropIt))
-		{
-			const auto PropValue = Prop->GetPropertyValue_InContainer(Target);
-			if (PropValue.IsNull()) { continue; }
-			auto const Value = PropValue.Get();
-			if (!Value) { continue; }
-
-			RecursiveSearch(Value, Visited, Settings, InSearchFunction, Depth + 1);
-			continue;
-		}
-		if (auto const ObjectProperty = CastField<FWeakObjectProperty>(*PropIt))
-		{
-			const auto PropValue = ObjectProperty->GetPropertyValue_InContainer(Target);
-			if (!PropValue.IsValid()) { continue; }
-			RecursiveSearch(PropValue.Get(), Visited, Settings, InSearchFunction, Depth + 1);
-			continue;
-		}
-		if (auto const ObjectProperty = CastField<FObjectProperty>(*PropIt))
-		{
-			const auto PropValue = ObjectProperty->GetPropertyValue_InContainer(Target);
-			if (!PropValue || !PropValue.Get()) { continue; }
-			if (!IsValid(PropValue.Get())) { continue; }
-			RecursiveSearch(PropValue.Get(), Visited, Settings, InSearchFunction, Depth + 1);
-			continue;
-		}
-		if (auto const ObjectProperty = CastField<FLazyObjectProperty>(*PropIt))
-		{
-			const auto PropValue = ObjectProperty->GetPropertyValue_InContainer(Target);
-			if (!PropValue.IsValid()) { continue; }
-			RecursiveSearch(PropValue.Get(), Visited, Settings, InSearchFunction, Depth + 1);
-			continue;
-		}
-	}
 
 	InSearchFunction(Target, Visited);
 	
+	// iterate over object properties
+	if (Settings->bWalkObjectProperties && Target->GetClass())
+	{
+		for (TFieldIterator<FObjectPropertyBase> PropIt(Target->GetClass(), EFieldIterationFlags::IncludeSuper); PropIt; ++PropIt)
+		{
+			if (const auto Prop = CastField<FSoftObjectProperty>(*PropIt))
+			{
+				const auto PropValue = Prop->GetPropertyValue_InContainer(Target);
+				if (PropValue.IsNull()) { continue; }
+				auto const Value = PropValue.Get();
+				if (!Value) { continue; }
+
+				InSearchFunction(Value, Visited);
+				continue;
+			}
+			if (auto const ObjectProperty = CastField<FWeakObjectProperty>(*PropIt))
+			{
+				const auto PropValue = ObjectProperty->GetPropertyValue_InContainer(Target);
+				if (!PropValue.IsValid()) { continue; }
+				InSearchFunction(PropValue.Get(), Visited);
+				continue;
+			}
+			if (auto const ObjectProperty = CastField<FObjectProperty>(*PropIt))
+			{
+				const auto PropValue = ObjectProperty->GetPropertyValue_InContainer(Target);
+				if (!PropValue || !PropValue.Get()) { continue; }
+				if (!IsValid(PropValue.Get())) { continue; }
+				InSearchFunction(PropValue.Get(), Visited);
+				continue;
+			}
+			if (auto const ObjectProperty = CastField<FLazyObjectProperty>(*PropIt))
+			{
+				const auto PropValue = ObjectProperty->GetPropertyValue_InContainer(Target);
+				if (!PropValue.IsValid()) { continue; }
+				InSearchFunction(PropValue.Get(), Visited);
+				continue;
+			}
+		}
+	}
+
 	if (!Settings->bIsRecursive)
 	{
 		return;
 	}
+	
 	if (const auto Actor = Cast<AActor>(Target))
 	{
 		if (Settings->bWalkComponents)
@@ -248,7 +250,7 @@ static void RecursiveSearch(
 			for (const auto Comp : Actor->GetComponents())
 			{
 				if (Comp->IsA<ULevelReferenceViewerComponent>()) { continue; } // ignore our own component
-				RecursiveSearch(Comp, Visited, Settings, InSearchFunction, Depth + 1);
+				InSearchFunction(Comp, Visited);
 			}
 		}
 
@@ -268,20 +270,32 @@ static void RecursiveSearch(
 			Scene->GetChildrenComponents(true, ChildComponents);
 			for (const auto Comp : ChildComponents)
 			{
-				RecursiveSearch(Comp, Visited, Settings, InSearchFunction, Depth + 1);
+				InSearchFunction(Comp, Visited);
 			}
 		}
 	}
 	
 	UE_CLOG(bDebugEnabled, LogLrv, Log, TEXT("RecursiveSearch for %s [Num: %d (+%d)] <<"), *Name, Visited.Num(), Visited.Num() - NumVisited);
+	if (bDebugEnabled)
+	{
+		for (auto const& Obj : Visited)
+		{
+			if (Obj->IsA<AActor>() || !Obj->IsInOuter(Target))
+			{
+				UE_CLOG(bDebugEnabled, LogLrv, Log, TEXT("\t\tVisited: %s (%s): %s"), *GetNameSafe(Obj), *Obj->GetClass()->GetName(), *GetPathNameSafe(Obj));
+			}
+		}
+	}
 }
 
-bool FLrvRefCollection::CanDisplayReference(const UObject* Object)
+bool FLrvRefCollection::CanDisplayReference(const UObject* Target, const UObject* Object)
 {
 	if (!IsValid(Object)) { return false; }
+	if (!IsValid(Target)) { return false; }
+	if (!Object->IsA<AActor>() && Object->IsInOuter(Target)) { return false; }
 	const auto LrvSettings = GetDefault<ULrvSettings>();
 	if (LrvSettings->bIgnoreTransient && Object->HasAnyFlags(RF_Transient)) { return false; }
-	if (LrvSettings->bIgnoreArchetype && Object->HasAnyFlags(RF_ArchetypeObject)) { return false; }
+	// if (LrvSettings->bIgnoreArchetype && Object->HasAnyFlags(RF_ArchetypeObject)) { return false; }
 	if (LrvSettings->TargetSettings.IgnoreReferencesToClasses.Contains(Object->GetClass())) { return false; }
 	if (Object->IsA<ULevelReferenceViewerComponent>()) { return false; }
 	if (Object->IsA<AActor>()) { return true; }
@@ -308,19 +322,9 @@ TSet<UObject*> FLrvRefCollection::GetSelectionSet()
 
 static auto GetCanDisplayReference(UObject* Target)
 {
-	return [Target](UObject* Object)
+	return [Target](const UObject* Object)
 	{
-		if (!IsValid(Target)) { return false; }
-		if (!IsValid(Object)) { return false; }
-		if (!FLrvRefCollection::CanDisplayReference(Object)) { return false; }
-		if (const auto Comp = Cast<UActorComponent>(Object))
-		{
-			if (Comp->GetOwner() == Target)
-			{
-				return false;
-			}
-		}
-		return true;
+		return FLrvRefCollection::CanDisplayReference(Target, Object);
 	};
 }
 
@@ -386,21 +390,21 @@ void FLrvRefCollection::FindOutRefs(UObject* Target, TSet<UObject*>& Visited)
 			if (!Object) { return; }
 			auto const Initial = InVisited.Num();
 			auto const bDebugEnabled = LrvSettings->bDebugEnabled;
+			if (LrvSettings->TargetSettings.IgnoreReferencesToClasses.Contains(Object->GetClass())) { return; }
 			TArray<UObject*> OutReferences;
 			FReferenceFinder RefFinder(
 				OutReferences,
 				nullptr,
 				false,
 				LrvSettings->bIgnoreArchetype,
-				true,
+				false,
 				LrvSettings->bIgnoreTransient
 			);
 
 			RefFinder.FindReferences(Object);
 			InVisited.Append(OutReferences);
-
-			// find inner references
 			
+			// find inner references
 			TArray<UObject*> OutReferences2;
 			FReferenceFinder RefFinder2(
 				OutReferences2,
@@ -410,7 +414,7 @@ void FLrvRefCollection::FindOutRefs(UObject* Target, TSet<UObject*>& Visited)
 				true,
 				LrvSettings->bIgnoreTransient
 			);
-
+			
 			RefFinder2.FindReferences(Object);
 			auto const NumVisited = InVisited.Num();
 			InVisited.Append(OutReferences2);
@@ -475,10 +479,10 @@ void FLrvRefCollection::FindInRefs(UObject* Target, TSet<UObject*>& Visited)
 		Target,
 		ChainVisited,
 		SearchSettings,
-		[SearchSettings, &ChainRoots](UObject* Object, TSet<UObject*>& InVisited)
+		[SearchSettings, &ChainRoots, Target](UObject* Object, TSet<UObject*>& InVisited)
 		{
 			if (!Object) { return; }
-			if (!CanDisplayReference(Object)) { return; }
+			if (Object != Target && !CanDisplayReference(Target, Object)) { return; }
 			const FReferenceChainSearch RefChainSearch(
 				Object,
 				EReferenceChainSearchMode::ExternalOnly | EReferenceChainSearchMode::Direct

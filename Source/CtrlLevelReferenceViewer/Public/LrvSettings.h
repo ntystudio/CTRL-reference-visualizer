@@ -166,16 +166,16 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering", meta = (EditCondition = "bIsRecursive"))
 	bool bWalkChildActors = true;
 
+	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
+	bool bWalkObjectProperties = false;
+	
 	/* Skip ObjectArchetype references */
 	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
-	bool bIgnoreArchetype = false;
+	bool bIgnoreArchetype = true;
 
 	/* Skip transient properties */
 	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
 	bool bIgnoreTransient = true;
-	
-	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
-	bool bWalkObjectPointers = true;
 	
 	UPROPERTY(Config, EditAnywhere, AdvancedDisplay, Category = "General")
 	bool bDebugEnabled = false;

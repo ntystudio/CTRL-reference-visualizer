@@ -492,18 +492,17 @@ void FLrvModule::RefreshSelection(UObject* SelectionObject)
 		DestroyAllCreatedComponents();
 		return;
 	}
-	if (!SelectionObject)
-	{
-		SelectionObject = GEditor->GetSelectedActors();
-	}
 
-	USelection* Selection = Cast<USelection>(SelectionObject);
+	auto const ActorSelection = GEditor->GetSelectedActors();
 	
-	if (!Selection) { return; }
 	TArray<AActor*> SelectedActors;
-	Selection->GetSelectedObjects<AActor>(SelectedActors);
+	ActorSelection->GetSelectedObjects<AActor>(SelectedActors);
+	auto const Settings = GetDefault<ULrvSettings>();
+	UE_CLOG(Settings->bDebugEnabled, LogLrv, Log, TEXT("RefreshSelection: %d actors selected"), SelectedActors.Num());
 	CreateDebugComponentsForActors(SelectedActors);
 	
+	USelection* Selection = Cast<USelection>(SelectionObject);
+	if (!Selection) { return; }
 	Selection->NoteSelectionChanged();
 }
 

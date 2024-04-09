@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "LevelReferenceViewerComponent.h"
-
 #include "HAL/IConsoleManager.h"
 
 #include "Modules/ModuleManager.h"

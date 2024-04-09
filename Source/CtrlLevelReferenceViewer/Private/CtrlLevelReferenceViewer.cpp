@@ -1,10 +1,9 @@
 ﻿#include "CtrlLevelReferenceViewer.h"
 
-#include "DelayAction.h"
 #include "ISettingsModule.h"
 #include "LevelEditorSubsystem.h"
-#include "LrvCommands.h"
 #include "LevelReferenceViewerComponent.h"
+#include "LrvCommands.h"
 #include "LrvDebugVisualizer.h"
 #include "LrvReferenceCollection.h"
 #include "LrvSettings.h"
@@ -44,9 +43,6 @@ void FLrvModule::MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs)
 		UE_LOG(LogLrv, Log, TEXT("Find %s for SelectedObject: %s"), *SelectedObject->GetFullName(), bFindOutRefs ? TEXT("Outgoing") : TEXT("Incoming"));
 		auto Refs = FLrvRefCollection::FindRefs(SelectedObject, bFindOutRefs);
 
-		// auto Refs = bFindOutRefs
-		// 			? FLrvRefCollection::FindOutRefs(SelectedObject)
-		// 			: FLrvRefCollection::FindInRefs(SelectedObject);
 		auto RefsArray = Refs.Array();
 		RefsArray.Sort(
 			[](const UObject& A, const UObject& B) { return A.GetFullName().Compare(B.GetFullName()) < 0; }

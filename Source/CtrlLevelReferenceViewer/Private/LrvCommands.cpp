@@ -6,7 +6,7 @@
 
 void FLrvCommands::ToggleEnabled_Execute()
 {
-	auto Settings = GetMutableDefault<ULrvSettings>();
+	auto const Settings = GetMutableDefault<ULrvSettings>();
 	Settings->ToggleEnabled();
 }
 

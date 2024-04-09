@@ -1,8 +1,6 @@
 ﻿#include "LrvReferenceCollection.h"
 
-#include "AssetToolsModule.h"
 #include "CtrlLevelReferenceViewer.h"
-#include "IAssetTools.h"
 #include "LevelReferenceViewerComponent.h"
 #include "LrvSettings.h"
 #include "Selection.h"
@@ -143,10 +141,6 @@ FLrvMenuItem FLrvRefCollection::MakeMenuEntry(const UObject* Object)
 			Component->GetFName(),
 			Label,
 			Tooltip,
-			// LOCTEXT(
-			// 	"CtrlLevelReferenceViewerDebugVisualizer_ContextMenu_OpenComponent_Tooltip",
-			// 	"Select the component in the editor"
-			// ),
 			FSlateIconFinder::FindIconForClass(Component->GetClass()),
 			FUIAction(
 				FExecuteAction::CreateLambda(

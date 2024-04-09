@@ -4,8 +4,8 @@
 #include "LrvReferenceCollection.h"
 #include "LrvSettings.h"
 #include "SceneManagement.h"
-#include "Selection.h"
 #include "SEditorViewport.h"
+#include "Selection.h"
 #include "Editor/UnrealEdEngine.h"
 
 #include "Framework/Application/MenuStack.h"
@@ -25,7 +25,7 @@ void FLrvDebugVisualizerCache::Invalidate()
 	bHadValidItems = false;
 }
 
-TSet<UObject*> FLrvDebugVisualizerCache::GetValidCached(bool bIsOutgoing)
+TSet<UObject*> FLrvDebugVisualizerCache::GetValidCached(bool const bIsOutgoing)
 {
 	if (!bCached) { return {}; }
 	auto Cached = bIsOutgoing ? Outgoing : Incoming;
@@ -48,7 +48,7 @@ TSet<UObject*> FLrvDebugVisualizerCache::GetValidCached(bool bIsOutgoing)
 	return Visited;
 }
 
-void FLrvDebugVisualizerCache::FillReferences(UObject* InTarget, const UActorComponent* InComponent, bool bIsOutgoing)
+void FLrvDebugVisualizerCache::FillReferences(UObject* InTarget, const UActorComponent* InComponent, bool const bIsOutgoing)
 {
 	if (!IsValid(InTarget) || !IsValid(InComponent)) { return; }
 	TSet<UObject*> Visited;
@@ -71,7 +71,7 @@ void FLrvDebugVisualizerCache::FillReferences(UObject* InTarget, const UActorCom
 	}
 }
 
-void FLrvDebugVisualizerCache::FillCache(UObject* InTarget, const UActorComponent* InComponent, bool bMultiple)
+void FLrvDebugVisualizerCache::FillCache(UObject* InTarget, const UActorComponent* InComponent, bool const bMultiple)
 {
 	if (Target != InTarget || Component != InComponent)
 	{
@@ -191,7 +191,6 @@ void FLrvDebugVisualizer::DrawVisualizationForComponent(
 ) const
 {
 	Cache.FillCache(Target, Component, bMultiple);
-	// UE_LOG(LogLrv, Verbose, TEXT("Cache Size Outgoing: %d, Incoming: %d"), Cache.Outgoing.Num(), Cache.Incoming.Num());
 	const auto SourceLocation = GetComponentLocation(Component);
 	const auto Config = GetDefault<ULrvSettings>();
 	DrawDebugTarget(PDI, SourceLocation, Config->Style.CurrentCircleColor);
@@ -215,7 +214,7 @@ FVector FLrvDebugVisualizer::GetComponentLocation(const UActorComponent* Compone
 void FLrvDebugVisualizer::DrawLinks(
 	FPrimitiveDrawInterface* PDI,
 	const UActorComponent* Component,
-	bool bIsOutgoing
+	bool const bIsOutgoing
 ) const
 {
 	const auto Owner = Component->GetOwner();

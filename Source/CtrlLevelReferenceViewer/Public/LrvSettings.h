@@ -116,6 +116,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "General", meta=(MultiLine=true))
 	FText Help;
 
+	UFUNCTION(BlueprintCallable, Exec, CallInEditor)
+	void Documentation() const;
+
 	UPROPERTY(Config, EditAnywhere, Category = "General", DisplayName = "Visualize Outgoing References")
 	bool bShowOutgoingReferences = true;
 

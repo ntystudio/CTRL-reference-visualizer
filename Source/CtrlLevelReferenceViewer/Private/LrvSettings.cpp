@@ -1,8 +1,10 @@
 ﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "LrvSettings.h"
-
 #include "CtrlLevelReferenceViewer.h"
+#include "HAL/PlatformProcess.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 
 #define LOCTEXT_NAMESPACE "LevelReferenceViewer"
 
@@ -118,6 +120,46 @@ void ULrvSettings::CleanTargets()
 	TargetSettings.TargetComponentClasses.RemoveAll(
 		OnlyOneNull([](const TSoftClassPtr<UActorComponent>& ClassPtr) { return ClassPtr.IsNull(); })
 	);
+}
+
+// Function to open plugin documentation
+void OpenPluginDocumentation(const FString& PluginName)
+{
+	// Construct the path to the plugin descriptor file
+	FString const PluginPath = FPaths::ProjectPluginsDir() / PluginName / FString::Printf(TEXT("%s.uplugin"), *PluginName);
+
+	// Read the plugin descriptor file
+	FString FileContents;
+	bool const bDidLoadFile = FFileHelper::LoadFileToString(FileContents, *PluginPath);
+	if (!bDidLoadFile)
+	{
+		UE_LOG(LogLrv, Warning, TEXT("Failed to load plugin descriptor for %s"), *PluginName);
+		return;
+	}
+	// Parse the JSON content
+	TSharedPtr<FJsonObject> JsonObject;
+	TSharedRef<TJsonReader<>> const Reader = TJsonReaderFactory<>::Create(FileContents);
+	bool const bDidDeserialize = FJsonSerializer::Deserialize(Reader, JsonObject);
+	if (!bDidDeserialize)
+	{
+		UE_LOG(LogLrv, Warning, TEXT("Failed to deserialize plugin descriptor for %s"), *PluginName);
+		return;
+	}
+	// Extract the DocsURL
+	FString DocsURL;
+	bool const Success = JsonObject->TryGetStringField(TEXT("DocsURL"), DocsURL);
+	if (!Success)
+	{
+		UE_LOG(LogLrv, Warning, TEXT("No DocsURL found in plugin descriptor for %s"), *PluginName);
+		return;
+	}
+	// Open the documentation URL in the default web browser
+	FPlatformProcess::LaunchURL(*DocsURL, nullptr, nullptr);
+}
+
+void ULrvSettings::Documentation() const
+{
+	OpenPluginDocumentation(TEXT("CtrlLevelReferenceViewer"));
 }
 
 void ULrvSettings::PostInitProperties()

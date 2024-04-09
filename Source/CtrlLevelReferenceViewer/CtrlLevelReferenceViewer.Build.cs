@@ -35,6 +35,7 @@ public class CtrlLevelReferenceViewer : ModuleRules
 				"Engine",
 				"GameplayTags",
 				"InputCore",
+				"Json",
 				"LevelEditor",
 				"Slate",
 				"SlateCore",

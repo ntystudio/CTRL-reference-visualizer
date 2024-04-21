@@ -2,12 +2,12 @@
 	"FileVersion": 3,
 	"Version": 1,
 	"VersionName": "1.0",
-	"FriendlyName": "Ctrl Level Reference Viewer",
+	"FriendlyName": "Ctrl Reference Visualizer",
 	"Description": "Visualize references to actors & components in a level",
 	"Category": "Other",
 	"CreatedBy": "NTY.studio",
 	"CreatedByURL": "https://nty.studio",
-	"DocsURL": "https://github.com/ntystudio/CTRL-reference-viewer/blob/main/README.md",
+	"DocsURL": "https://github.com/ntystudio/CTRLReferenceVisualizer/blob/main/README.md",
 	"MarketplaceURL": "",
 	"CanContainContent": true,
 	"IsBetaVersion": true,
@@ -16,7 +16,7 @@
 	"Installed": true,
 	"Modules": [
 		{
-			"Name": "CtrlLevelReferenceViewer",
+			"Name": "CtrlReferenceVisualizer",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
 		}

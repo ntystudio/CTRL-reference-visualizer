@@ -1,32 +1,33 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
-#include "LevelReferenceViewerComponent.h"
+#include "ReferenceVisualizerComponent.h"
 #include "HAL/IConsoleManager.h"
 
 #include "Modules/ModuleManager.h"
 
 class UToolMenu;
-class FLrvDebugVisualizer;
-class ULrvSettings;
+class FCrvDebugVisualizer;
+class UCrvSettings;
 
-namespace LrvConsoleVars
+namespace CrvConsoleVars
 {
 	static int32 IsEnabled = 1;
-	static FAutoConsoleVariableRef CVarLevelReferenceViewerEnabled(
-		TEXT("ctrl.LevelReferenceViewer"),
+	static FAutoConsoleVariableRef CVarReferenceVisualizerEnabled(
+		TEXT("ctrl.ReferenceVisualizer"),
 		IsEnabled,
-		TEXT("Enable Actor Reference Viewer Level Editor Display")
+		TEXT("Enable Actor Reference Visualizer Level Editor Display")
 	);
 }
 
-DECLARE_LOG_CATEGORY_EXTERN(LogLrv, Log, All);
+DECLARE_LOG_CATEGORY_EXTERN(LogCrv, Log, All);
 
 
-class FLrvModule : public IModuleInterface
+class FCrvModule : public IModuleInterface
 {
 public:
 	bool bDidRegisterVisualizers = false;
+	FTimerHandle RefreshTimerHandle;
 	void MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs) const;
 	void InitActorMenu() const;
 	void InitLevelMenus() const;
@@ -40,7 +41,7 @@ public:
 	virtual void UnregisterVisualizers();
 	void Refresh(bool bForceRefresh = true);
 
-	static TSharedPtr<FLrvDebugVisualizer> GetDefaultVisualizer();
+	static TSharedPtr<FCrvDebugVisualizer> GetDefaultVisualizer();
 	virtual void AddTargetComponentClass(class UClass* Class);
 
 	/**
@@ -49,9 +50,9 @@ public:
 	*
 	* @return Returns singleton instance, loading the module on demand if needed
 	*/
-	static FLrvModule& Get()
+	static FCrvModule& Get()
 	{
-		return FModuleManager::LoadModuleChecked<FLrvModule>("CtrlLevelReferenceViewer");
+		return FModuleManager::LoadModuleChecked<FCrvModule>("CtrlReferenceVisualizer");
 	}
 
 	/**
@@ -61,7 +62,7 @@ public:
 	*/
 	static bool IsAvailable()
 	{
-		return FModuleManager::Get().IsModuleLoaded("CtrlLevelReferenceViewer");
+		return FModuleManager::Get().IsModuleLoaded("CtrlReferenceVisualizer");
 	}
 
 protected:
@@ -72,7 +73,8 @@ protected:
 	void CreateDebugComponentsForActors(TArray<AActor*> Actors);
 	void DestroyStaleDebugComponents(const TArray<AActor*>& CurrentActorSelection);
 	void DestroyAllCreatedComponents();
+	FToolMenuEntry GetSettingsMenuEntry() const;
 	TArray<FName> RegisteredClasses;
 	FDelegateHandle SettingsModifiedHandle;
-	TArray<TWeakObjectPtr<ULevelReferenceViewerComponent>> CreatedDebugComponents;
+	TArray<TWeakObjectPtr<UReferenceVisualizerComponent>> CreatedDebugComponents;
 };

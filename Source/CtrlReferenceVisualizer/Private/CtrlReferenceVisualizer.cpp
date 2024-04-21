@@ -1,13 +1,13 @@
-﻿#include "CtrlLevelReferenceViewer.h"
+﻿#include "CtrlReferenceVisualizer.h"
 
 #include "ISettingsModule.h"
 #include "LevelEditorSubsystem.h"
-#include "LevelReferenceViewerComponent.h"
-#include "LrvCommands.h"
-#include "LrvDebugVisualizer.h"
-#include "LrvReferenceCollection.h"
-#include "LrvSettings.h"
-#include "LrvStyle.h"
+#include "ReferenceVisualizerComponent.h"
+#include "CrvCommands.h"
+#include "CrvDebugVisualizer.h"
+#include "CrvReferenceCollection.h"
+#include "CrvSettings.h"
+#include "CrvStyle.h"
 #include "Selection.h"
 #include "UnrealEdGlobals.h"
 
@@ -17,31 +17,31 @@
 
 #include "UObject/Object.h"
 
-#define LOCTEXT_NAMESPACE "LevelReferenceViewer"
+#define LOCTEXT_NAMESPACE "ReferenceVisualizer"
 
-DEFINE_LOG_CATEGORY(LogLrv);
+DEFINE_LOG_CATEGORY(LogCrv);
 
-void FLrvModule::MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs) const
+void FCrvModule::MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs) const
 {
-	if (!GetDefault<ULrvSettings>()->bIsEnabled)
+	if (!GetDefault<UCrvSettings>()->bIsEnabled)
 	{
 		const auto ToolEntry = FToolMenuEntry::InitMenuEntry(
-			FName("CtrlLevelReferenceViewer_Disabled"),
+			FName("CtrlReferenceVisualizer_Disabled"),
 			LOCTEXT("Disabled", "Disabled"),
 			LOCTEXT("DisabledTooltip", "Disabled"),
 			FSlateIcon(),
 			FUIAction()
 		);
-		SubMenu->AddMenuEntry(FName("CtrlLevelReferenceViewer_Disabled"), ToolEntry);
+		SubMenu->AddMenuEntry(FName("CtrlReferenceVisualizer_Disabled"), ToolEntry);
 		return;
 	}
 
 	bool bFoundEntry = false;
 	TSet<UObject*> Visited;
-	for (auto SelectedObject : FLrvRefCollection::GetSelectionSet())
+	for (auto SelectedObject : FCrvRefCollection::GetSelectionSet())
 	{
-		UE_LOG(LogLrv, Log, TEXT("Find %s for SelectedObject: %s"), *SelectedObject->GetFullName(), bFindOutRefs ? TEXT("Outgoing") : TEXT("Incoming"));
-		auto Refs = FLrvRefCollection::FindRefs(SelectedObject, bFindOutRefs);
+		UE_LOG(LogCrv, Log, TEXT("Find %s for SelectedObject: %s"), *SelectedObject->GetFullName(), bFindOutRefs ? TEXT("Outgoing") : TEXT("Incoming"));
+		auto Refs = FCrvRefCollection::FindRefs(SelectedObject, bFindOutRefs);
 
 		auto RefsArray = Refs.Array();
 		RefsArray.Sort(
@@ -67,7 +67,7 @@ void FLrvModule::MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs)
 			{
 				SectionPtr->Label = FText::FromString(Ref->GetClass()->GetName());
 			}
-			auto [Name, Label, ToolTip, Icon, Action] = FLrvRefCollection::MakeMenuEntry(Ref);
+			auto [Name, Label, ToolTip, Icon, Action] = FCrvRefCollection::MakeMenuEntry(Ref);
 			const auto ToolEntry = FToolMenuEntry::InitMenuEntry(Name, Label, ToolTip, Icon, Action);
 			SectionPtr->AddEntry(ToolEntry);
 			bFoundEntry = true;
@@ -78,40 +78,40 @@ void FLrvModule::MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs)
 	if (!bFoundEntry)
 	{
 		const auto ToolEntry = FToolMenuEntry::InitMenuEntry(
-			FName("CtrlLevelReferenceViewer_None"),
+			FName("CtrlReferenceVisualizer_None"),
 			LOCTEXT("NoReferencesFound", "No references found"),
 			LOCTEXT("NoReferencesFoundTooltip", "No references found"),
 			FSlateIcon(),
 			FUIAction()
 		);
-		SubMenu->AddMenuEntry(FName("CtrlLevelReferenceViewer_None"), ToolEntry);
+		SubMenu->AddMenuEntry(FName("CtrlReferenceVisualizer_None"), ToolEntry);
 	}
 }
 
-void FLrvModule::InitActorMenu() const
+void FCrvModule::InitActorMenu() const
 {
 	const auto SubMenu = FToolMenuEntry::InitSubMenu(
-		FName("CtrlLevelReferenceViewerOutgoing"),
+		FName("CtrlReferenceVisualizerOutgoing"),
 		LOCTEXT("References", "References"),
 		LOCTEXT("ReferencesTooltip", "List of actor & component references from selected objects"),
 		FNewToolMenuDelegate::CreateLambda(
 			[this](UToolMenu* Menu)
 			{
 				const auto SubMenuOutgoing = FToolMenuEntry::InitSubMenu(
-					FName("CtrlLevelReferenceViewerOutgoing"),
+					FName("CtrlReferenceVisualizerOutgoing"),
 					LOCTEXT("OutgoingReferences", "Outgoing"),
 					LOCTEXT("OutgoingReferencesTooltip", "List of actor & component references from selected objects"),
-					FNewToolMenuDelegate::CreateRaw(this, &FLrvModule::MakeReferenceListSubMenu, true),
+					FNewToolMenuDelegate::CreateRaw(this, &FCrvModule::MakeReferenceListSubMenu, true),
 					FToolUIActionChoice(),
 					EUserInterfaceActionType::None,
 					false,
 					FSlateIcon(FAppStyle::GetAppStyleSetName(), "BlendSpaceEditor.ArrowRight")
 				);
 				const auto SubMenuIncoming = FToolMenuEntry::InitSubMenu(
-					FName("CtrlLevelReferenceViewerIncoming"),
+					FName("CtrlReferenceVisualizerIncoming"),
 					LOCTEXT("IncomingReferences", "Incoming"),
 					LOCTEXT("IncomingReferencesTooltip", "List of incoming actor & component references to selected objects"),
-					FNewToolMenuDelegate::CreateRaw(this, &FLrvModule::MakeReferenceListSubMenu, false),
+					FNewToolMenuDelegate::CreateRaw(this, &FCrvModule::MakeReferenceListSubMenu, false),
 					FToolUIActionChoice(),
 					EUserInterfaceActionType::None,
 					false,
@@ -123,22 +123,22 @@ void FLrvModule::InitActorMenu() const
 				const auto CanExecuteIfEnabled = FCanExecuteAction::CreateLambda(
 					[this]()
 					{
-						const auto Config = GetDefault<ULrvSettings>();
+						const auto Config = GetDefault<UCrvSettings>();
 						return Config->bIsEnabled;
 					}
 				);
 				Menu->AddMenuEntry(
-					FName("CtrlLevelReferenceViewer"),
+					FName("CtrlReferenceVisualizer"),
 					FToolMenuEntry::InitMenuEntry(
-						FName("CtrlLevelReferenceViewer"),
-						LOCTEXT("CtrlLevelReferenceViewer", "Enable"),
-						LOCTEXT("CtrlLevelReferenceViewer_Tooltip", "Toggle Level Reference Viewer"),
+						FName("CtrlReferenceVisualizer"),
+						LOCTEXT("CtrlReferenceVisualizer", "Enable"),
+						LOCTEXT("CtrlReferenceVisualizer_Tooltip", "Toggle Reference Visualizer"),
 						FSlateIcon(),
 						FUIAction(
 							FExecuteAction::CreateLambda(
 								[this]()
 								{
-									auto* Settings = GetMutableDefault<ULrvSettings>();
+									auto* Settings = GetMutableDefault<UCrvSettings>();
 									Settings->SetEnabled(!Settings->bIsEnabled);
 									Settings->SaveConfig();
 									// get level editor viewport
@@ -150,7 +150,7 @@ void FLrvModule::InitActorMenu() const
 							FIsActionChecked::CreateLambda(
 								[this]()
 								{
-									auto* Settings = GetDefault<ULrvSettings>();
+									auto* Settings = GetDefault<UCrvSettings>();
 									return Settings->bIsEnabled;
 								}
 							)
@@ -160,7 +160,7 @@ void FLrvModule::InitActorMenu() const
 				);
 
 				Menu->AddMenuEntry(
-					FName("CtrlLevelReferenceViewer"),
+					FName("CtrlReferenceVisualizer"),
 					FToolMenuEntry::InitMenuEntry(
 						FName("CtrlShowIncoming"),
 						LOCTEXT("ShowIncoming", "Visualize Incoming"),
@@ -170,7 +170,7 @@ void FLrvModule::InitActorMenu() const
 							FExecuteAction::CreateLambda(
 								[this]()
 								{
-									const auto Config = GetMutableDefault<ULrvSettings>();
+									const auto Config = GetMutableDefault<UCrvSettings>();
 									Config->SetShowIncomingReferences(!Config->bShowIncomingReferences);
 								}
 							),
@@ -178,7 +178,7 @@ void FLrvModule::InitActorMenu() const
 							FIsActionChecked::CreateLambda(
 								[this]()
 								{
-									const auto Config = GetDefault<ULrvSettings>();
+									const auto Config = GetDefault<UCrvSettings>();
 									return Config->bShowIncomingReferences;
 								}
 							)
@@ -187,7 +187,7 @@ void FLrvModule::InitActorMenu() const
 					)
 				);
 				Menu->AddMenuEntry(
-					FName("CtrlLevelReferenceViewer"),
+					FName("CtrlReferenceVisualizer"),
 					FToolMenuEntry::InitMenuEntry(
 						FName("CtrlShowOutgoing"),
 						LOCTEXT("ShowOutgoing", "Visualize Outgoing"),
@@ -197,7 +197,7 @@ void FLrvModule::InitActorMenu() const
 							FExecuteAction::CreateLambda(
 								[this]()
 								{
-									const auto Config = GetMutableDefault<ULrvSettings>();
+									const auto Config = GetMutableDefault<UCrvSettings>();
 									Config->SetShowOutgoingReferences(!Config->bShowOutgoingReferences);
 								}
 							),
@@ -205,7 +205,7 @@ void FLrvModule::InitActorMenu() const
 							FIsActionChecked::CreateLambda(
 								[this]()
 								{
-									const auto Config = GetDefault<ULrvSettings>();
+									const auto Config = GetDefault<UCrvSettings>();
 									return Config->bShowOutgoingReferences;
 								}
 							)
@@ -215,7 +215,7 @@ void FLrvModule::InitActorMenu() const
 				);
 
 				Menu->AddMenuEntry(
-					FName("CtrlLevelReferenceViewer"),
+					FName("CtrlReferenceVisualizer"),
 					FToolMenuEntry::InitMenuEntry(
 						FName("CtrlRefresh"),
 						LOCTEXT("Refresh", "Refresh"),
@@ -225,7 +225,7 @@ void FLrvModule::InitActorMenu() const
 							FExecuteAction::CreateLambda(
 								[this]()
 								{
-									const auto Config = GetMutableDefault<ULrvSettings>();
+									const auto Config = GetMutableDefault<UCrvSettings>();
 									Config->Refresh();
 								}
 							),
@@ -236,28 +236,15 @@ void FLrvModule::InitActorMenu() const
 				);
 
 				Menu->AddMenuEntry(
-					FName("CtrlLevelReferenceViewerSettings"),
-					FToolMenuEntry::InitMenuEntry(
-						FName("CtrlLevelReferenceViewerSettings"),
-						LOCTEXT("CtrlLevelReferenceViewerSettings", "Settings"),
-						LOCTEXT("CtrlLevelReferenceViewerSettings_Tooltip", "Open Level Reference Viewer Settings"),
-						FSlateIconFinder::FindIcon("LevelViewport.AdvancedSettings"),
-						FUIAction(
-							FExecuteAction::CreateLambda(
-								[this]()
-								{
-									FModuleManager::LoadModuleChecked<ISettingsModule>("Settings").ShowViewer("Editor", "Ctrl", "Level Reference Viewer");
-								}
-							)
-						)
-					)
+					FName("CtrlReferenceVisualizerSettings"),
+					GetSettingsMenuEntry()
 				);
 			}
 		),
 		FToolUIActionChoice(),
 		EUserInterfaceActionType::None,
 		false,
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), "ContentBrowser.ReferenceViewer")
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "ContentBrowser.ReferenceVisualizer")
 	);
 	auto* ActorContextMenu = UToolMenus::Get()->ExtendMenu("LevelEditor.ActorContextMenu");
 	auto&& Section = ActorContextMenu->FindOrAddSection(FName("Ctrl"));
@@ -265,7 +252,7 @@ void FLrvModule::InitActorMenu() const
 
 }
 
-void FLrvModule::InitLevelMenus() const
+void FCrvModule::InitLevelMenus() const
 {
 	const auto Menu = UToolMenus::Get()->ExtendMenu("LevelEditor.LevelEditorToolBar.PlayToolBar");
 	auto& Section = Menu->FindOrAddSection("PluginTools");
@@ -285,7 +272,7 @@ void FLrvModule::InitLevelMenus() const
 				LOCTEXT("CtrlMenuEntry", "Ctrl"),
 				LOCTEXT("CtrlMenuEntry", "Ctrl Tools"),
 				FSlateIcon(
-					FLrvStyle::Get()->GetStyleSetName(),
+					FCrvStyle::Get()->GetStyleSetName(),
 					"Ctrl.TabIcon"
 				)
 			)
@@ -294,27 +281,27 @@ void FLrvModule::InitLevelMenus() const
 
 	const auto InNewToolMenu = UToolMenus::Get()->ExtendMenu("Ctrl.CtrlMenu");
 
-	auto ReferenceViewerSubMenu = FToolMenuEntry::InitSubMenu(
-		"CtrlLevelReferenceViewerSubMenu",
-		LOCTEXT("CtrlLevelReferenceViewerSubMenu", "Level Reference Viewer"),
-		LOCTEXT("CtrlLevelReferenceViewerSubMenu_Tooltip", "Ctrl Level Reference Viewer Actions"),
+	auto ReferenceVisualizerSubMenu = FToolMenuEntry::InitSubMenu(
+		"CtrlReferenceVisualizerSubMenu",
+		LOCTEXT("CtrlReferenceVisualizerSubMenu", "Reference Visualizer"),
+		LOCTEXT("CtrlReferenceVisualizerSubMenu_Tooltip", "Ctrl Reference Visualizer Actions"),
 		FNewToolMenuChoice(
 			FNewToolMenuDelegate::CreateLambda(
 				[this](UToolMenu* Menu)
 				{
-					auto Section = Menu->AddSection("CtrlLevelReferenceViewerSection", LOCTEXT("CtrlLevelReferenceViewerSection", "Level Reference Viewer"));
+					auto Section = Menu->AddSection("CtrlReferenceVisualizerSection", LOCTEXT("CtrlReferenceVisualizerSection", "Reference Visualizer"));
 					Menu->AddMenuEntry(
 						Section.Name,
 						FToolMenuEntry::InitMenuEntry(
-							FName("CtrlLevelReferenceViewer"),
-							LOCTEXT("CtrlLevelReferenceViewer", "Enable"),
-							LOCTEXT("CtrlLevelReferenceViewer_Tooltip", "Toggle Level Reference Viewer"),
+							FName("CtrlReferenceVisualizer"),
+							LOCTEXT("CtrlReferenceVisualizer", "Enable"),
+							LOCTEXT("CtrlReferenceVisualizer_Tooltip", "Toggle Reference Visualizer"),
 							FSlateIcon(),
 							FUIAction(
 								FExecuteAction::CreateLambda(
 									[this]()
 									{
-										auto* Settings = GetMutableDefault<ULrvSettings>();
+										auto* Settings = GetMutableDefault<UCrvSettings>();
 										Settings->SetEnabled(!Settings->bIsEnabled);
 										Settings->SaveConfig();
 										// get level editor viewport
@@ -326,7 +313,7 @@ void FLrvModule::InitLevelMenus() const
 								FIsActionChecked::CreateLambda(
 									[this]()
 									{
-										auto* Settings = GetDefault<ULrvSettings>();
+										auto* Settings = GetDefault<UCrvSettings>();
 										return Settings->bIsEnabled;
 									}
 								)
@@ -335,54 +322,57 @@ void FLrvModule::InitLevelMenus() const
 						)
 					);
 					Menu->AddMenuEntry(Section.Name, FToolMenuEntry::InitSeparator(NAME_None));
-					Menu->AddMenuEntry(
-						Section.Name,
-						FToolMenuEntry::InitMenuEntry(
-							FName("CtrlLevelReferenceViewerSettings"),
-							LOCTEXT("CtrlLevelReferenceViewerSettings", "Settings"),
-							LOCTEXT("CtrlLevelReferenceViewerSettings_Tooltip", "Open Level Reference Viewer Settings"),
-							FSlateIconFinder::FindIcon("LevelViewport.AdvancedSettings"),
-							FUIAction(
-								FExecuteAction::CreateLambda(
-									[this]()
-									{
-										FModuleManager::LoadModuleChecked<ISettingsModule>("Settings").ShowViewer("Editor", "Ctrl", "Level Reference Viewer");
-									}
-								)
-							)
-						)
-					);
+					Menu->AddMenuEntry(Section.Name, GetSettingsMenuEntry());
 				}
 			)
 		)
 	);
-	ReferenceViewerSubMenu.Icon = FSlateIconFinder::FindIcon("BTEditor.Graph.BTNode.Task.RunBehavior.Icon");
-	InNewToolMenu->AddMenuEntry("CtrlEditorSubmenu", ReferenceViewerSubMenu);
+	ReferenceVisualizerSubMenu.Icon = FSlateIconFinder::FindIcon("BTEditor.Graph.BTNode.Task.RunBehavior.Icon");
+	InNewToolMenu->AddMenuEntry("CtrlEditorSubmenu", ReferenceVisualizerSubMenu);
 }
 
-void FLrvModule::OnPostEngineInit()
+FToolMenuEntry FCrvModule::GetSettingsMenuEntry() const
 {
-	ULrvSettings* Settings = GetMutableDefault<ULrvSettings>();
+	return FToolMenuEntry::InitMenuEntry(
+		FName("CtrlReferenceVisualizerSettings"),
+		LOCTEXT("CtrlReferenceVisualizerSettings", "Settings"),
+		LOCTEXT("CtrlReferenceVisualizerSettings_Tooltip", "Open Reference Visualizer Settings"),
+		FSlateIconFinder::FindIcon("LevelViewport.AdvancedSettings"),
+		FUIAction(
+			FExecuteAction::CreateLambda(
+				[this]()
+				{
+					FModuleManager::LoadModuleChecked<ISettingsModule>("Settings").ShowViewer("Editor", "Ctrl", "Reference Visualizer");
+				}
+			)
+		)
+	);
+}
+
+
+void FCrvModule::OnPostEngineInit()
+{
+	UCrvSettings* Settings = GetMutableDefault<UCrvSettings>();
 	SettingsModifiedHandle = Settings->OnModified.AddLambda([this](UObject*, FProperty*) { OnSettingsModified(); });
-	Settings->AddComponentClass(ULevelReferenceViewerComponent::StaticClass());
+	Settings->AddComponentClass(UReferenceVisualizerComponent::StaticClass());
 	// add visualizer to actors when editor selection is changed
-	USelection::SelectionChangedEvent.AddRaw(this, &FLrvModule::OnSelectionChanged);
+	USelection::SelectionChangedEvent.AddRaw(this, &FCrvModule::OnSelectionChanged);
 	RegisterVisualizers();
-	FLrvCommands::Register();
+	FCrvCommands::Register();
 	InitActorMenu();
 	InitLevelMenus();
 
 }
 
-void FLrvModule::StartupModule()
+void FCrvModule::StartupModule()
 {
-	FLrvStyle::Startup();
-	FLrvStyle::Register();
+	FCrvStyle::Startup();
+	FCrvStyle::Register();
 
-	FCoreDelegates::OnPostEngineInit.AddRaw(this, &FLrvModule::OnPostEngineInit);
+	FCoreDelegates::OnPostEngineInit.AddRaw(this, &FCrvModule::OnPostEngineInit);
 }
 
-void FLrvModule::DestroyAllCreatedComponents()
+void FCrvModule::DestroyAllCreatedComponents()
 {
 	for (auto ExistingComponent : CreatedDebugComponents)
 	{
@@ -394,7 +384,7 @@ void FLrvModule::DestroyAllCreatedComponents()
 	CreatedDebugComponents.Empty();
 }
 
-void FLrvModule::DestroyStaleDebugComponents(const TArray<AActor*>& CurrentActorSelection)
+void FCrvModule::DestroyStaleDebugComponents(const TArray<AActor*>& CurrentActorSelection)
 {
 	// destroy any created debug components that are no longer needed
 	auto CurrentlyCreatedDebugComponents = CreatedDebugComponents;
@@ -423,7 +413,7 @@ void FLrvModule::DestroyStaleDebugComponents(const TArray<AActor*>& CurrentActor
 	}
 }
 
-void FLrvModule::CreateDebugComponentsForActors(TArray<AActor*> Actors)
+void FCrvModule::CreateDebugComponentsForActors(TArray<AActor*> Actors)
 {
 	DestroyStaleDebugComponents(Actors);
 	CreatedDebugComponents.Reserve(Actors.Num());
@@ -431,18 +421,18 @@ void FLrvModule::CreateDebugComponentsForActors(TArray<AActor*> Actors)
 	{
 		if (!IsValid(Actor))
 		{
-			UE_LOG(LogLrv, Warning, TEXT("CreateDebugComponentsForActors: Actor is not valid"));
+			UE_LOG(LogCrv, Warning, TEXT("CreateDebugComponentsForActors: Actor is not valid"));
 			continue;
 		}
 		// don't add debug components to actors that already have them (either auto-created or manually added)
-		if (Actor->FindComponentByClass<ULevelReferenceViewerComponent>())
+		if (Actor->FindComponentByClass<UReferenceVisualizerComponent>())
 		{
 			continue;
 		}
 		
-		auto* DebugComponent = Cast<ULevelReferenceViewerComponent>(
+		auto* DebugComponent = Cast<UReferenceVisualizerComponent>(
 			Actor->AddComponentByClass(
-				ULevelReferenceViewerComponent::StaticClass(),
+				UReferenceVisualizerComponent::StaticClass(),
 				false,
 				FTransform::Identity,
 				false
@@ -450,7 +440,7 @@ void FLrvModule::CreateDebugComponentsForActors(TArray<AActor*> Actors)
 		);
 		if (!DebugComponent)
 		{
-			UE_LOG(LogLrv, Warning, TEXT("CreateDebugComponentsForActors: Failed to add component to actor"));
+			UE_LOG(LogCrv, Warning, TEXT("CreateDebugComponentsForActors: Failed to add component to actor"));
 			continue;
 		}
 		
@@ -466,13 +456,13 @@ void FLrvModule::CreateDebugComponentsForActors(TArray<AActor*> Actors)
 	}
 }
 
-bool FLrvModule::IsEnabled()
+bool FCrvModule::IsEnabled()
 {
-	const auto Settings = GetDefault<ULrvSettings>();
+	const auto Settings = GetDefault<UCrvSettings>();
 	return Settings->bIsEnabled;
 }
 
-void FLrvModule::OnSelectionChanged(UObject* SelectionObject)
+void FCrvModule::OnSelectionChanged(UObject* SelectionObject)
 {
 	static bool bIsReentrant = false;
 	if (bIsReentrant) { return; }
@@ -482,7 +472,7 @@ void FLrvModule::OnSelectionChanged(UObject* SelectionObject)
 	RefreshSelection(SelectionObject);
 }
 
-void FLrvModule::RefreshSelection(UObject* SelectionObject)
+void FCrvModule::RefreshSelection(UObject* SelectionObject)
 {
 	static bool bIsReentrant = false;
 	if (bIsReentrant) { return; }
@@ -497,8 +487,8 @@ void FLrvModule::RefreshSelection(UObject* SelectionObject)
 	
 	TArray<AActor*> SelectedActors;
 	ActorSelection->GetSelectedObjects<AActor>(SelectedActors);
-	auto const Settings = GetDefault<ULrvSettings>();
-	UE_CLOG(Settings->bDebugEnabled, LogLrv, Log, TEXT("RefreshSelection: %d actors selected"), SelectedActors.Num());
+	auto const Settings = GetDefault<UCrvSettings>();
+	UE_CLOG(Settings->bDebugEnabled, LogCrv, Log, TEXT("RefreshSelection: %d actors selected"), SelectedActors.Num());
 	CreateDebugComponentsForActors(SelectedActors);
 	
 	USelection* Selection = Cast<USelection>(SelectionObject);
@@ -506,16 +496,16 @@ void FLrvModule::RefreshSelection(UObject* SelectionObject)
 	Selection->NoteSelectionChanged();
 }
 
-TSharedPtr<FLrvDebugVisualizer> FLrvModule::GetDefaultVisualizer()
+TSharedPtr<FCrvDebugVisualizer> FCrvModule::GetDefaultVisualizer()
 {
-	return StaticCastSharedPtr<FLrvDebugVisualizer>(
+	return StaticCastSharedPtr<FCrvDebugVisualizer>(
 		GUnrealEd->FindComponentVisualizer(
-			ULevelReferenceViewerComponent::StaticClass()
+			UReferenceVisualizerComponent::StaticClass()
 		)
 	);
 }
 
-void FLrvModule::RegisterVisualizers()
+void FCrvModule::RegisterVisualizers()
 {
 	if (!GUnrealEd) { return; }
 
@@ -529,14 +519,14 @@ void FLrvModule::RegisterVisualizers()
 	// if item is in RegisteredClasses but not in Classes, then it should be removed
 	// start with all registered classes, remove as we find them in Classes
 	// at the end, all items left in ToRemove should be removed
-	const auto* Settings = GetDefault<ULrvSettings>();
+	const auto* Settings = GetDefault<UCrvSettings>();
 	auto ToRemove = RegisteredClasses;
 	for (const auto Class : Settings->TargetSettings.TargetComponentClasses)
 	{
 		if (Class.IsPending())
 		{
 			ToRemove.Empty(); // do no removing if any class is pending
-			UE_LOG(LogLrv, Log, TEXT("RegisterVisualizers: Skipping pending class"));
+			UE_LOG(LogCrv, Log, TEXT("RegisterVisualizers: Skipping pending class"));
 			continue;
 		}
 		if (Class.IsNull()) { continue; }
@@ -550,7 +540,7 @@ void FLrvModule::RegisterVisualizers()
 		// don't register classes that are already registered
 		if (RegisteredClasses.Contains(ClassName)) { continue; }
 		RegisteredClasses.AddUnique(ClassName);
-		const auto Visualizer = MakeShared<FLrvDebugVisualizer>();
+		const auto Visualizer = MakeShared<FCrvDebugVisualizer>();
 		GUnrealEd->RegisterComponentVisualizer(ClassName, Visualizer);
 		Visualizer->OnRegister();
 	}
@@ -564,7 +554,7 @@ void FLrvModule::RegisterVisualizers()
 	bDidRegisterVisualizers = true;
 }
 
-void FLrvModule::UnregisterVisualizers()
+void FCrvModule::UnregisterVisualizers()
 {
 	auto CurrentClasses = RegisteredClasses;
 	RegisteredClasses.Empty();
@@ -577,47 +567,60 @@ void FLrvModule::UnregisterVisualizers()
 }
 
 
-void FLrvModule::Refresh(bool bForceRefresh)
+void FCrvModule::Refresh(bool bForceRefresh)
 {
-	static bool bLastEnabled = !IsEnabled(); // force refresh on first call
+	auto* Settings = GetDefault<UCrvSettings>();
+	bool bRefreshEnabled = Settings->bRefreshEnabled;
+	if (!bRefreshEnabled) { return; }
 
+	static bool bLastEnabled = !IsEnabled(); // force refresh on first call
 	const auto bIsEnabled = IsEnabled();
 	const auto bEnabledChanged = bLastEnabled != bIsEnabled;
 	bLastEnabled = bIsEnabled;
-	if (bForceRefresh)
-	{
-		UnregisterVisualizers();
-	}
+	auto const EditorWorld = GEditor->GetEditorWorldContext().World();
+	EditorWorld->GetTimerManager().ClearTimer(RefreshTimerHandle);
+	UE_CLOG(Settings->bDebugEnabled, LogCrv, Log, TEXT("Refresh: bForceRefresh: %d, bIsEnabled: %d, bEnabledChanged: %d"), bForceRefresh, bIsEnabled, bEnabledChanged);
+	RefreshTimerHandle = EditorWorld->GetTimerManager().SetTimerForNextTick(
+		FTimerDelegate::CreateLambda(
+			[this, bForceRefresh, Settings, bIsEnabled, bEnabledChanged]()
+			{
+				if (bForceRefresh)
+				{
+					UnregisterVisualizers();
+				}
 
-	bIsEnabled ? RegisterVisualizers() : UnregisterVisualizers();
+				bIsEnabled ? RegisterVisualizers() : UnregisterVisualizers();
 
-	if (bEnabledChanged || bForceRefresh)
-	{
-		RefreshSelection(GEditor->GetSelectedActors());
-	}
+				if (bEnabledChanged || bForceRefresh)
+				{
+					RefreshSelection(GEditor->GetSelectedActors());
+				}
+			}
+		)
+	);
 }
 
-void FLrvModule::ShutdownModule()
+void FCrvModule::ShutdownModule()
 {
 	if (!UObjectInitialized()) { return; }
 	SettingsModifiedHandle.Reset();
 	DestroyAllCreatedComponents();
 	UnregisterVisualizers();
-	FLrvCommands::Unregister();
-	FLrvStyle::Shutdown();
+	FCrvCommands::Unregister();
+	FCrvStyle::Shutdown();
 }
 
-void FLrvModule::AddTargetComponentClass(UClass* Class)
+void FCrvModule::AddTargetComponentClass(UClass* Class)
 {
-	auto* Settings = GetMutableDefault<ULrvSettings>();
+	auto* Settings = GetMutableDefault<UCrvSettings>();
 	Settings->AddComponentClass(Class);
 }
 
-void FLrvModule::OnSettingsModified()
+void FCrvModule::OnSettingsModified()
 {
 	Refresh(false);
 }
 
 #undef LOCTEXT_NAMESPACE
 
-IMPLEMENT_MODULE(FLrvModule, CtrlLevelReferenceViewer)
+IMPLEMENT_MODULE(FCrvModule, CtrlReferenceVisualizer)

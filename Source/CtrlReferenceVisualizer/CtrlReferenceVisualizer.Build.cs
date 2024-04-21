@@ -1,8 +1,8 @@
 ﻿using UnrealBuildTool;
 
-public class CtrlLevelReferenceViewer : ModuleRules
+public class CtrlReferenceVisualizer : ModuleRules
 {
-	public CtrlLevelReferenceViewer(ReadOnlyTargetRules Target) : base(Target)
+	public CtrlReferenceVisualizer(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Latest;

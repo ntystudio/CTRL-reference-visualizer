@@ -6,7 +6,7 @@
 
 void FCrvCommands::ToggleEnabled_Execute()
 {
-	auto const Settings = GetMutableDefault<UCrvSettings>();
+	const auto Settings = GetMutableDefault<UCrvSettings>();
 	Settings->ToggleEnabled();
 }
 

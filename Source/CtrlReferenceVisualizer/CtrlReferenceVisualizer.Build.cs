@@ -28,25 +28,28 @@ public class CtrlReferenceVisualizer : ModuleRules
 		PublicDependencyModuleNames.AddRange(
 			new[]
 			{
-				"AssetTools",
 				"Core",
-				"CoreUObject",
-				"DeveloperSettings",
 				"Engine",
-				"GameplayTags",
-				"InputCore",
-				"Json",
-				"LevelEditor",
+				"DeveloperSettings",
 				"Slate",
 				"SlateCore",
-				"ToolMenus",
-				"UnrealEd"
 			}
 		);
 
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
+				"AssetTools",
+				"Core",
+				"CoreUObject",
+				"GameplayTags",
+				"InputCore",
+				"Json",
+				"LevelEditor",
+				"TypedElementRuntime",
+				"TypedElementFramework",
+				"ToolMenus",
+				"UnrealEd"
 			}
 		);
 

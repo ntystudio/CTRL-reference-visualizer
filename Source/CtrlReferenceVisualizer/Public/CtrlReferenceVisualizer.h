@@ -10,27 +10,19 @@ class UToolMenu;
 class FCrvDebugVisualizer;
 class UCrvSettings;
 
-namespace CrvConsoleVars
-{
-	static int32 IsEnabled = 1;
-	static FAutoConsoleVariableRef CVarReferenceVisualizerEnabled(
-		TEXT("ctrl.ReferenceVisualizer"),
-		IsEnabled,
-		TEXT("Enable Actor Reference Visualizer Level Editor Display")
-	);
-}
-
 DECLARE_LOG_CATEGORY_EXTERN(LogCrv, Log, All);
-
 
 class FCrvModule : public IModuleInterface
 {
 public:
-	bool bDidRegisterVisualizers = false;
-	FTimerHandle RefreshTimerHandle;
 	void MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs) const;
+	void SelectReference(UObject* Object);
 	void InitActorMenu() const;
+	void MakeActorOptionsSubmenu(UToolMenu* Menu) const;
 	void InitLevelMenus() const;
+
+	void InitTab();
+
 	void OnPostEngineInit();
 	/** IModuleInterface implementation */
 	virtual void StartupModule() override;
@@ -40,6 +32,8 @@ public:
 	virtual void RegisterVisualizers();
 	virtual void UnregisterVisualizers();
 	void Refresh(bool bForceRefresh = true);
+
+	void QueueRefresh(bool bForceRefresh = true);
 
 	static TSharedPtr<FCrvDebugVisualizer> GetDefaultVisualizer();
 	virtual void AddTargetComponentClass(class UClass* Class);
@@ -67,14 +61,21 @@ public:
 
 protected:
 	static bool IsEnabled();
+	static bool IsDebugEnabled();
 	void OnSelectionChanged(UObject* Object);
-	void RefreshSelection(UObject* SelectionObject);
-	void OnSettingsModified();
-	void CreateDebugComponentsForActors(TArray<AActor*> Actors);
+	void RefreshSelection();
+	void OnSettingsModified(UObject* Object, FProperty* Property);
+	bool CreateDebugComponentsForActors(TArray<AActor*> Actors);
 	void DestroyStaleDebugComponents(const TArray<AActor*>& CurrentActorSelection);
+	bool HasDebugComponentForActor(const AActor* Actor) const;
 	void DestroyAllCreatedComponents();
 	FToolMenuEntry GetSettingsMenuEntry() const;
+	bool bDidRegisterVisualizers = false;
+	bool bIsRefreshingSelection = false;
+	FTimerHandle RefreshTimerHandle;
+	FDelegateHandle QueuedRefreshHandle;
 	TArray<FName> RegisteredClasses;
 	FDelegateHandle SettingsModifiedHandle;
 	TArray<TWeakObjectPtr<UReferenceVisualizerComponent>> CreatedDebugComponents;
 };
+

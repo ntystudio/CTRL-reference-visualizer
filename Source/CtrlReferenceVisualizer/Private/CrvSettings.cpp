@@ -1,6 +1,8 @@
 ﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "CrvSettings.h"
+
+#include "CrvUtils.h"
 #include "CtrlReferenceVisualizer.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/FileHelper.h"
@@ -14,7 +16,7 @@ FCrvStyleSettings::FCrvStyleSettings()
 
 FCrvTargetSettings::FCrvTargetSettings()
 	: IgnoreReferencesToClasses({}),
-	  TargetComponentClasses({TSoftClassPtr<UActorComponent>(UReferenceVisualizerComponent::StaticClass())})
+	TargetComponentClasses({TSoftClassPtr<UActorComponent>(UReferenceVisualizerComponent::StaticClass())})
 {
 
 }
@@ -126,11 +128,11 @@ void UCrvSettings::CleanTargets()
 void OpenPluginDocumentation(const FString& PluginName)
 {
 	// Construct the path to the plugin descriptor file
-	FString const PluginPath = FPaths::ProjectPluginsDir() / PluginName / FString::Printf(TEXT("%s.uplugin"), *PluginName);
+	const FString PluginPath = FPaths::ProjectPluginsDir() / PluginName / FString::Printf(TEXT("%s.uplugin"), *PluginName);
 
 	// Read the plugin descriptor file
 	FString FileContents;
-	bool const bDidLoadFile = FFileHelper::LoadFileToString(FileContents, *PluginPath);
+	const bool bDidLoadFile = FFileHelper::LoadFileToString(FileContents, *PluginPath);
 	if (!bDidLoadFile)
 	{
 		UE_LOG(LogCrv, Warning, TEXT("Failed to load plugin descriptor for %s"), *PluginName);
@@ -138,8 +140,8 @@ void OpenPluginDocumentation(const FString& PluginName)
 	}
 	// Parse the JSON content
 	TSharedPtr<FJsonObject> JsonObject;
-	TSharedRef<TJsonReader<>> const Reader = TJsonReaderFactory<>::Create(FileContents);
-	bool const bDidDeserialize = FJsonSerializer::Deserialize(Reader, JsonObject);
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(FileContents);
+	const bool bDidDeserialize = FJsonSerializer::Deserialize(Reader, JsonObject);
 	if (!bDidDeserialize)
 	{
 		UE_LOG(LogCrv, Warning, TEXT("Failed to deserialize plugin descriptor for %s"), *PluginName);
@@ -147,7 +149,7 @@ void OpenPluginDocumentation(const FString& PluginName)
 	}
 	// Extract the DocsURL
 	FString DocsURL;
-	bool const Success = JsonObject->TryGetStringField(TEXT("DocsURL"), DocsURL);
+	const bool Success = JsonObject->TryGetStringField(TEXT("DocsURL"), DocsURL);
 	if (!Success)
 	{
 		UE_LOG(LogCrv, Warning, TEXT("No DocsURL found in plugin descriptor for %s"), *PluginName);
@@ -173,7 +175,13 @@ void UCrvSettings::PostInitProperties()
 	UpdateTargets();
 }
 
+EReferenceChainSearchMode UCrvSettings::GetSearchModeIncoming() const
+{
+	return static_cast<EReferenceChainSearchMode>(ReferenceChainSearchModeIncoming);
+}
+
 #if WITH_EDITOR
+
 void UCrvSettings::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);

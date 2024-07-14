@@ -1,8 +1,9 @@
 ﻿#include "CrvDebugVisualizer.h"
 
-#include "CtrlReferenceVisualizer.h"
-#include "CrvReferenceCollection.h"
+#include "CrvRefSearch.h"
 #include "CrvSettings.h"
+#include "CrvUtils.h"
+#include "CtrlReferenceVisualizer.h"
 #include "SceneManagement.h"
 #include "SEditorViewport.h"
 #include "Selection.h"
@@ -13,159 +14,61 @@
 
 #include "Layout/WidgetPath.h"
 
+using namespace CRV;
+
 #define LOCTEXT_NAMESPACE "ReferenceVisualizer"
-
-void FCrvDebugVisualizerCache::Invalidate()
-{
-	if (bCached || Outgoing.Num() > 0 || Incoming.Num() > 0)
-	{
-		auto const bDebugEnabled = GetDefault<UCrvSettings>()->bDebugEnabled;
-		UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("Invalidating cache..."));
-	}
-	Target = nullptr;
-	Component = nullptr;
-	Outgoing.Reset();
-	Incoming.Reset();
-	bCached = false;
-	bHadValidItems = false;
-}
-
-TSet<UObject*> FCrvDebugVisualizerCache::GetValidCached(bool const bIsOutgoing)
-{
-	if (!bCached) { return {}; }
-	auto Cached = bIsOutgoing ? Outgoing : Incoming;
-	TSet<UObject*> Visited;
-	Visited.Reserve(Cached.Num());
-	bool bInvalidated = false;
-	for (const auto Ref : Cached)
-	{
-		if (!Ref.IsValid())
-		{
-			bInvalidated = true;
-			continue;
-		}
-		Visited.Add(Ref.Get());
-	}
-	if (bInvalidated)
-	{
-		Invalidate();
-	}
-	return Visited;
-}
-
-void FCrvDebugVisualizerCache::FillReferences(UObject* InTarget, const UActorComponent* InComponent, bool const bIsOutgoing)
-{
-	if (!IsValid(InTarget) || !IsValid(InComponent))
-	{
-		Invalidate();
-		return;
-	}
-	auto const bDebugEnabled = GetDefault<UCrvSettings>()->bDebugEnabled;
-	UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("FillReferences cache... Target %s Component %s | %s"), *GetNameSafe(InTarget), *GetNameSafe(InComponent), bIsOutgoing ? TEXT("Outgoing") : TEXT("Incoming"));
-	TSet<UObject*> Visited;
-	FCrvRefCollection::FindRefs(Target.Get(), Visited, bIsOutgoing);
-	auto&& CachedItems = bIsOutgoing ? Outgoing : Incoming;
-	CachedItems.Empty(Visited.Num());
-	if (Target == Component)
-	{
-		Visited.Add(Component->GetOwner());
-	}
-	for (const auto DstRef : Visited)
-	{
-		CachedItems.Add(DstRef);
-	}
-	CachedItems.Compact();
-
-	if (!bHadValidItems)
-	{
-		UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("FillReferences Cache has %d valid items."), CachedItems.Num());
-		bHadValidItems = CachedItems.Num() > 0;
-	}
-}
-
-void FCrvDebugVisualizerCache::FillCache(UObject* InTarget, const UActorComponent* InComponent, bool const bMultiple)
-{
-	if (Target != InTarget || Component != InComponent)
-	{
-		Invalidate();
-		Target = InTarget;
-		Component = InComponent;
-	}
-
-	if (!Target.IsValid() || !Component.IsValid())
-	{
-		Invalidate();
-		return;
-	}
-
-	if (bCached) { return; }
-
-	const auto Config = GetDefault<UCrvSettings>();
-	if (Config->bShowOutgoingReferences)
-	{
-		FillReferences(Target.Get(), Component.Get(), true);
-	}
-	else
-	{
-		Outgoing.Empty();
-	}
-
-	if (Config->bShowIncomingReferences && !bMultiple)
-	{
-		FillReferences(Target.Get(), Component.Get(), false);
-	}
-	else
-	{
-		Incoming.Empty();
-	}
-
-	bCached = true;
-}
 
 void FCrvDebugVisualizer::OnRegister()
 {
 	FComponentVisualizer::OnRegister();
+	UE_LOG(LogCrv, Log, TEXT("Registering %s"), *FString(__FUNCTION__));
 
 	const auto Config = GetMutableDefault<UCrvSettings>();
 	Config->OnModified.RemoveAll(this);
 	Config->OnModified.AddLambda(
-		[this](UObject*, FProperty*)
+		[this](UObject*, const FProperty* Property)
 		{
-			Cache.Invalidate();
+			Cache.Invalidate(FString::Printf(TEXT("Settings modified: %s"), *GetNameSafe(Property)));
 		}
 	);
 }
 
 void FCrvDebugVisualizer::DrawVisualization(
-	const UActorComponent* Component,
+	const UActorComponent* RootComponent,
 	const FSceneView* View,
 	FPrimitiveDrawInterface* PDI
 )
 {
+	if (RootComponent != LastRootComponent.Get())
+	{
+		LastRootComponent = RootComponent;
+		UE_LOG(LogCrv, Log, TEXT("DrawVisualization %s %s %s"), *FString(__FUNCTION__), *CRV_LOG_LINE, *GetDebugName(RootComponent));
+	}
+
 	const auto Config = GetDefault<UCrvSettings>();
 	if (!Config->bIsEnabled)
 	{
-		InvalidateCache();
+		InvalidateCache(FString(TEXT("Disabled ")));
 		return;
 	}
 
-	if (!IsValid(Component))
+	if (!IsValid(RootComponent))
 	{
 		const bool bHadValidItems = Cache.bHadValidItems;
-		InvalidateCache();
+		InvalidateCache(FString(TEXT("Invalid RootComponent")));
 		if (bHadValidItems)
 		{
-			UE_LOG(LogCrv, Log, TEXT("Component reference invalid, probably changed. Refreshing selection to fix... %s"), *FString(__FUNCTION__));
-			FCrvModule::Get().Refresh(true); // only refresh if we had valid items cached before and now we don't
+			UE_LOG(LogCrv, Log, TEXT("RootComponent reference invalid, probably changed. Refreshing selection to fix... %s"), *FString(__FUNCTION__));
+			FCrvModule::Get().QueueRefresh(true); // only refresh if we had valid items cached before and now we don't
 		}
 		return;
 	}
 
-	const auto Owner = Component->GetOwner();
+	const auto Owner = RootComponent->GetOwner();
 	if (!ensure(IsValid(Owner)))
 	{
 
-		InvalidateCache();
+		InvalidateCache(FString(TEXT("Invalid Owner")));
 		return;
 	}
 
@@ -178,7 +81,7 @@ void FCrvDebugVisualizer::DrawVisualization(
 	if (SelectedComponents.Num() == 0 || Config->bAlwaysIncludeReferencesFromParent)
 	{
 		// draw references for the actor
-		DrawVisualizationForComponent(Owner, Component, PDI);
+		DrawVisualizationForRootObject(Owner, RootComponent, PDI);
 	}
 	else
 	{
@@ -186,7 +89,7 @@ void FCrvDebugVisualizer::DrawVisualization(
 		for (const auto SelectedComponent : SelectedComponents)
 		{
 			if (SelectedComponent->GetOwner() != Owner) { continue; }
-			DrawVisualizationForComponent(SelectedComponent, SelectedComponent, PDI);
+			DrawVisualizationForRootObject(SelectedComponent, SelectedComponent, PDI);
 		}
 	}
 }
@@ -196,18 +99,18 @@ TSharedPtr<SWidget> FCrvDebugVisualizer::GenerateContextMenu() const
 	return FComponentVisualizer::GenerateContextMenu();
 }
 
-void FCrvDebugVisualizer::DrawVisualizationForComponent(
-	UObject* Target,
-	const UActorComponent* Component,
+void FCrvDebugVisualizer::DrawVisualizationForRootObject(
+	UObject* RootObject,
+	const UActorComponent* RootComponent,
 	FPrimitiveDrawInterface* PDI
 ) const
 {
-	Cache.FillCache(Target, Component, bMultiple);
-	const auto SourceLocation = GetComponentLocation(Component);
+	Cache.FillCache(RootObject, bMultiple);
+	const auto SourceLocation = GetComponentLocation(RootComponent);
 	const auto Config = GetDefault<UCrvSettings>();
 	DrawDebugTarget(PDI, SourceLocation, Config->Style.CurrentCircleColor);
-	DrawLinks(PDI, Component, true);
-	DrawLinks(PDI, Component, false);
+	DrawLinks(PDI, RootComponent, RootObject, true);
+	DrawLinks(PDI, RootComponent, RootObject, false);
 }
 
 FVector FCrvDebugVisualizer::GetComponentLocation(const UActorComponent* Component)
@@ -223,14 +126,46 @@ FVector FCrvDebugVisualizer::GetComponentLocation(const UActorComponent* Compone
 	return SceneComponent ? SceneComponent->GetComponentLocation() : GetActorOrigin(Owner);
 }
 
+FString GetDebugNames(TArray<UObject*> Objects, FString Separator = TEXT(", "))
+{
+	return FString::JoinBy(Objects, *Separator, [](const UObject* Obj)
+	{
+		return GetDebugName(Obj);
+	});
+}
+
+void FCrvDebugVisualizer::OnHoverProxy(FCrvHitProxyRef HitProxy)
+{
+	// static FHitProxyId LastHoveredId;
+	//
+	// // don't log again if we're hovering over the same proxy
+	// if (HitProxy.Id == LastHoveredId) { return; }
+	//
+	// LastHoveredId = HitProxy.Id;
+	// if (!HitProxy.IsValid())
+	// {
+	// 	return;
+	// }
+	// for (const auto Chain : FCrvRefSearch::GetChainsBetween(HitProxy.RootObject.Get(), HitProxy.LeafObject.Get()))
+	// {
+	// 	if (!Chain)
+	// 	{
+	// 		UE_LOG(LogCrv, Log, TEXT("Hovered (No Chain) %s -> %s"), *GetDebugName(HitProxy.RootObject.Get()), *GetDebugName(HitProxy.LeafObject.Get()));
+	// 		continue;
+	// 	}
+	// 	UE_LOG(LogCrv, Log, TEXT("Hovered Chain: %s"), *Chain->ToString());
+	// }
+}
+
 void FCrvDebugVisualizer::DrawLinks(
 	FPrimitiveDrawInterface* PDI,
-	const UActorComponent* Component,
-	bool const bIsOutgoing
+	const UActorComponent* RootComponent,
+	const UObject* RootObject,
+	const bool bIsOutgoing
 ) const
 {
-	const auto Owner = Component->GetOwner();
-	const FVector SourceLocation = GetComponentLocation(Component);
+	const auto Owner = RootComponent->GetOwner();
+	const FVector SourceLocation = GetComponentLocation(RootComponent);
 	const auto Config = GetDefault<UCrvSettings>();
 	if (bIsOutgoing && !Config->bShowOutgoingReferences || !bIsOutgoing && !Config->bShowIncomingReferences)
 	{
@@ -238,7 +173,8 @@ void FCrvDebugVisualizer::DrawLinks(
 	}
 
 	TSet<UObject*> ReferencedObjects = Cache.GetValidCached(bIsOutgoing);
-	TSet<UObject*> OtherReferencedObjects = Cache.GetValidCached(!bIsOutgoing);
+	const TSet<UObject*> OtherReferencedObjects = Cache.GetValidCached(!bIsOutgoing);
+
 	// draw links to referenced objects
 	for (const auto DstRef : ReferencedObjects)
 	{
@@ -247,7 +183,8 @@ void FCrvDebugVisualizer::DrawLinks(
 		{
 			if (DstActor == Owner) { continue; }
 			auto DstLocation = GetActorOrigin(DstActor);
-			const auto HitProxy = new HCrvHitProxy(Component, DstActor);
+			const auto HitProxy = new HCrvHitProxy(RootComponent, RootObject, DstActor);
+			FCrvHitProxyRef Ref = HitProxy;
 			if (bIsOutgoing || bMultiple)
 			{
 				DrawDebugTarget(PDI, DstLocation, Config->Style.LinkedCircleColor);
@@ -255,7 +192,7 @@ void FCrvDebugVisualizer::DrawLinks(
 				DrawDebugLink(PDI, SourceLocation, DstLocation, Config->Style.LineColor);
 				PDI->SetHitProxy(nullptr);
 			}
-			else if (!OtherReferencedObjects.Contains(Component))
+			else
 			{
 				DrawDebugTarget(PDI, SourceLocation, Config->Style.CurrentCircleColor);
 				PDI->SetHitProxy(HitProxy);
@@ -269,26 +206,28 @@ void FCrvDebugVisualizer::DrawLinks(
 		// handle component references
 		if (const auto DstActorComponent = Cast<UActorComponent>(DstRef))
 		{
-			if (DstActorComponent == Component) { continue; }
+			if (DstActorComponent == RootComponent) { continue; }
 			const auto DstOwner = DstActorComponent->GetOwner();
 			if (!IsValid(DstOwner)) { continue; }
 			if (DstOwner == Owner) { continue; }
 
 			const FVector DestLocation = GetComponentLocation(DstActorComponent);
-			const auto DestActorHitProxy = new HCrvHitProxy(Component, DstActorComponent);
+			const auto HitProxy = new HCrvHitProxy(RootComponent, RootObject, DstActorComponent);
+
+			FCrvHitProxyRef Ref = HitProxy;
 
 			if (bIsOutgoing || bMultiple)
 			{
 				DrawDebugTarget(PDI, DestLocation, Config->Style.LinkedCircleColor);
-				PDI->SetHitProxy(DestActorHitProxy);
+				PDI->SetHitProxy(HitProxy);
 				DrawDebugLink(PDI, SourceLocation, DestLocation, Config->Style.LineColor);
 				PDI->SetHitProxy(nullptr);
 			}
 			else
 			{
 				DrawDebugTarget(PDI, SourceLocation, Config->Style.CurrentCircleColor);
-				PDI->SetHitProxy(DestActorHitProxy);
-				DrawDebugLink(PDI, SourceLocation, DestLocation, Config->Style.LineColorIncoming);
+				PDI->SetHitProxy(HitProxy);
+				DrawDebugLink(PDI, DestLocation, SourceLocation, Config->Style.LineColorIncoming);
 				PDI->SetHitProxy(nullptr);
 			}
 			PDI->SetHitProxy(nullptr);
@@ -339,18 +278,19 @@ void FCrvDebugVisualizer::DrawDebugLink(
 	}
 }
 
-TSharedPtr<SWidget> FCrvDebugVisualizer::MakeContextMenu() const
+TSharedPtr<SWidget> FCrvDebugVisualizer::MakeContextMenu(const UObject* Parent) const
 {
+	if (!Parent) { return nullptr; }
 	FMenuBuilder MenuBuilder(true, nullptr);
 	if (LastHitProxy && LastHitProxy->IsValid())
 	{
-		if (const auto Object = LastHitProxy->TargetObject.Get())
+		if (const auto Object = LastHitProxy->LeafObject.Get())
 		{
 			MenuBuilder.BeginSection(
 				NAME_None,
 				LOCTEXT("HoveredReference", "Hovered Reference")
 			);
-			const auto MenuEntry = FCrvRefCollection::MakeMenuEntry(Object);
+			const auto MenuEntry = FCrvRefSearch::MakeMenuEntry(Parent, Object);
 			MenuBuilder.AddMenuEntry(
 				MenuEntry.Label,
 				MenuEntry.ToolTip,
@@ -409,6 +349,7 @@ FVector FCrvDebugVisualizer::GetActorOrigin(const AActor* Actor)
 	return Actor->GetActorLocation();
 }
 
+
 bool FCrvDebugVisualizer::VisProxyHandleClick(
 	FEditorViewportClient* InViewportClient,
 	HComponentVisProxy* VisProxy,
@@ -424,9 +365,10 @@ bool FCrvDebugVisualizer::VisProxyHandleClick(
 	{
 		LastHitProxy = nullptr;
 	}
+	UE_LOG(LogCrv, Log, TEXT("VisProxyHandleClick %s %s"), *Click.GetKey().ToString(), *UEnum::GetValueAsString(Click.GetEvent()))
 	if (Click.GetKey() == EKeys::LeftMouseButton)
 	{
-		const TSharedPtr<SWidget> MenuWidget = MakeContextMenu();
+		const TSharedPtr<SWidget> MenuWidget = MakeContextMenu(LastHitProxy->LeafObject.Get());
 		if (MenuWidget.IsValid())
 		{
 			const TSharedPtr<SEditorViewport> ViewportWidget = InViewportClient->GetEditorViewportWidget();
@@ -436,7 +378,7 @@ bool FCrvDebugVisualizer::VisProxyHandleClick(
 					ViewportWidget.ToSharedRef(),
 					FWidgetPath(),
 					MenuWidget->AsShared(),
-					FSlateApplication::Get().GetCursorPos(),
+					FSlateApplication::Get().GetCursorPos(), // Click position doesn't account for multiple screens
 					FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu)
 				);
 
@@ -447,9 +389,9 @@ bool FCrvDebugVisualizer::VisProxyHandleClick(
 	return false;
 }
 
-void FCrvDebugVisualizer::InvalidateCache()
+void FCrvDebugVisualizer::InvalidateCache(const FString& Reason)
 {
-	Cache.Invalidate();
+	Cache.Invalidate(Reason);
 }
 
 #undef LOCTEXT_NAMESPACE

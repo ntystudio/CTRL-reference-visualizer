@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DeveloperSettings.h"
 #include "Engine/DeveloperSettingsBackedByCVars.h"
+#include "UObject/ReferenceChainSearch.h"
 
 #include "CrvSettings.generated.h"
 
@@ -80,6 +81,49 @@ struct FCrvTargetSettings
 	TArray<TSoftClassPtr<UActorComponent>> TargetComponentClasses;
 };
 
+UENUM(meta = (Bitflags, UseEnumValuesAsMaskValuesInEditor = "true"))
+enum class EReferenceChainSearchMode_K2: uint32
+{
+	// Returns all reference chains found
+	Default = 0,
+	// Returns only reference chains from external objects
+	ExternalOnly = 1 << 0,
+	// Returns only the shortest reference chain for each rooted object
+	Shortest = 1 << 1,
+	// Returns only the longest reference chain for each rooted object
+	Longest = 1 << 2,
+	// Returns only the direct referencers
+	Direct = 1 << 3,
+	// Returns complete chains. (Ignoring non GC objects)
+	FullChain = 1 << 4,
+	// Returns the shortest path to a garbage object from which the target object is reachable
+	ShortestToGarbage = 1 << 5,
+	// Attempts to find a plausible path to the target object with minimal memory usage
+	// E.g. returns a direct external reference to the target object if one is found 
+	//	otherwise returns an external reference to an inner of the target object
+	Minimal = 1 << 6,
+	// Skips the disregard-for-GC set that will never be GCd and whose outgoing references are not checked during GC
+	GCOnly = 1 << 7,
+
+	// Print results
+	PrintResults = 1 << 16,
+	// Print ALL results (in some cases there may be thousands of reference chains)
+	PrintAllResults = 1 << 17,
+};
+
+namespace CRV
+{
+	inline FString LexToString(const EReferenceChainSearchMode_K2 Mode)
+	{
+		return UEnum::GetValueOrBitfieldAsString(Mode);
+	}
+
+	inline FString LexToString(EReferenceChainSearchMode Mode)
+	{
+		return LexToString(static_cast<EReferenceChainSearchMode_K2>(Mode));
+	}
+}
+
 /**
  * 
  */
@@ -109,6 +153,8 @@ public:
 
 	UFUNCTION()
 	void CleanTargets();
+
+
 	/* Whether the reference viewer display is enabled */
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ConsoleVariable = "ctrl.ReferenceVisualizer"))
 	bool bIsEnabled = true;
@@ -178,11 +224,15 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
 	bool bIgnoreTransient = true;
 	
-	UPROPERTY(EditAnywhere, AdvancedDisplay, Category = "General")
+	UPROPERTY(Config, EditAnywhere, AdvancedDisplay, Category = "General")
 	bool bDebugEnabled = false;
 	
 	UPROPERTY(EditAnywhere, AdvancedDisplay, Category = "General")
 	bool bRefreshEnabled = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "General", meta = (Bitmask, BitmaskEnum = "/Script/CtrlReferenceVisualizer.EReferenceChainSearchMode_K2"))
+	int32 ReferenceChainSearchModeIncoming = static_cast<int32>(EReferenceChainSearchMode_K2::Longest);
+	EReferenceChainSearchMode GetSearchModeIncoming() const;
 
 	/* Delegate called when this settings object is modified */
 	DECLARE_MULTICAST_DELEGATE_TwoParams(UCrvSettingsModified, UObject*, FProperty*);

@@ -8,6 +8,7 @@
 #include "CrvUtils.h"
 #include "ISettingsModule.h"
 #include "LevelEditorSubsystem.h"
+#include "ObjectEditorUtils.h"
 #include "ReferenceVisualizerComponent.h"
 #include "Selection.h"
 #include "UnrealEdGlobals.h"
@@ -476,6 +477,7 @@ FToolMenuEntry FCrvModule::GetSettingsMenuEntry() const
 
 void FCrvModule::OnPostEngineInit()
 {
+	InitCategories();
 	UCrvSettings* Settings = GetMutableDefault<UCrvSettings>();
 	SettingsModifiedHandle = Settings->OnModified.AddRaw(this, &FCrvModule::OnSettingsModified);
 	Settings->AddComponentClass(UReferenceVisualizerComponent::StaticClass());
@@ -818,7 +820,39 @@ void FCrvModule::OnSettingsModified(UObject* Object, FProperty* Property)
 	Refresh(false);
 }
 
+void FCrvModule::InitCategories()
+{
+	FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
+	auto IsRelevantClass = [](UClass* Class) { return Class->GetClassPathName().ToString().StartsWith("/CtrlReferenceVisualizer"); };
 
+	for (auto* const Class : TObjectRange<UClass>())
+	{
+		if (!IsRelevantClass(Class)) { continue; }
+		const TSharedRef<FPropertySection> Section = PropertyModule.FindOrCreateSection(
+			Class->GetFName(),
+			TEXT("CtrlReferenceVisualizer"),
+			LOCTEXT("CtrlReferenceVisualizer", "💛 CTRL Reference Visualizer")
+		);
+
+		// Find all categories for this class
+		for (TFieldIterator<FProperty> It(Class, EFieldIteratorFlags::IncludeSuper); It; ++It)
+		{
+			const auto* const Property = *It;
+			if (!IsRelevantClass(Property->GetOwnerClass())) { continue; }
+
+			auto Category = FObjectEditorUtils::GetCategoryFName(Property).ToString();
+
+			// prevent crash
+			if (Category.Contains(TEXT("|")))
+			{
+				Category = Category.Left(Category.Find(TEXT("|")));
+			}
+			Section->AddCategory(FName(*Category.TrimStartAndEnd()));
+		}
+		Section->AddCategory(TEXT("Default"));
+		Section->AddCategory(Class->GetFName());
+	}
+}
 #undef LOCTEXT_NAMESPACE
 
 IMPLEMENT_MODULE(FCrvModule, CtrlReferenceVisualizer)

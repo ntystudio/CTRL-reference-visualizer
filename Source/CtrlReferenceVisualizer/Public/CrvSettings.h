@@ -231,7 +231,7 @@ public:
 	bool bRefreshEnabled = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "General", meta = (Bitmask, BitmaskEnum = "/Script/CtrlReferenceVisualizer.EReferenceChainSearchMode_K2"))
-	int32 ReferenceChainSearchModeIncoming = static_cast<int32>(EReferenceChainSearchMode_K2::Longest);
+	int32 ReferenceChainSearchModeIncoming = static_cast<int32>(EReferenceChainSearchMode_K2::Longest) | static_cast<int32>(EReferenceChainSearchMode_K2::Direct);
 	EReferenceChainSearchMode GetSearchModeIncoming() const;
 
 	/* Delegate called when this settings object is modified */

@@ -65,6 +65,7 @@ protected:
 	void OnSelectionChanged(UObject* Object);
 	void RefreshSelection();
 	void OnSettingsModified(UObject* Object, FProperty* Property);
+	void InitCategories();
 	bool CreateDebugComponentsForActors(TArray<AActor*> Actors);
 	void DestroyStaleDebugComponents(const TArray<AActor*>& CurrentActorSelection);
 	bool HasDebugComponentForActor(const AActor* Actor) const;

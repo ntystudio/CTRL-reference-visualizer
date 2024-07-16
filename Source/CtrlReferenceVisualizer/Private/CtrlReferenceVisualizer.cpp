@@ -39,12 +39,17 @@ void FCrvModule::MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs)
 		return;
 	}
 
+	MenuCache.FillCache(FCrvRefSearch::GetSelectionSet(), bFindOutRefs);
+
 	bool bFoundEntry = false;
-	TSet<UObject*> Visited;
+	FCrvSet Visited;
+	auto ValidCache = MenuCache.GetValidCached(bFindOutRefs);
 	for (auto SelectedObject : FCrvRefSearch::GetSelectionSet())
 	{
 		UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("Find %s for SelectedObject: %s"), *SelectedObject->GetFullName(), bFindOutRefs ? TEXT("Outgoing") : TEXT("Incoming"));
-		auto Refs = FCrvRefSearch::FindRefs(SelectedObject, bFindOutRefs);
+		auto FoundRefs = ValidCache.Find(SelectedObject);
+		if (!FoundRefs) { continue; }
+		auto Refs = *FoundRefs;
 
 		auto RefsArray = Refs.Array();
 		RefsArray.Sort(
@@ -64,7 +69,6 @@ void FCrvModule::MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs)
 				SectionPtr = &Section2;
 				// get human-readable name from uobject
 				SectionPtr->Label = FText::FromString(BP->GetFriendlyName());
-
 			}
 			else
 			{

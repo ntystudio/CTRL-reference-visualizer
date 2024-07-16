@@ -15,7 +15,6 @@ public:
 
 private:
 	static void InvalidateCache(const FString& Reason);
-	TWeakObjectPtr<const UActorComponent> LastRootComponent;
 	// override from FComponentVisualizer
 	virtual void DrawVisualization(
 		const UActorComponent* RootComponent,
@@ -45,7 +44,8 @@ private:
 		FPrimitiveDrawInterface* PDI,
 		const FVector& SrcOrigin,
 		const FVector& DstOrigin,
-		const FLinearColor& Color
+		const bool bIsOutgoing,
+		const UClass* Type
 	) const;
 
 public:

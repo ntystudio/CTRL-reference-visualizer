@@ -7,7 +7,6 @@
 
 #include "CrvSettings.generated.h"
 
-
 UENUM()
 enum class ECrvLineStyle: uint8
 {
@@ -24,10 +23,19 @@ struct FCrvStyleSettings
 
 	UPROPERTY(Config, EditAnywhere, Category = "Style | General")
 	ECrvLineStyle LineStyle = ECrvLineStyle::Arrow;
+	
+	UPROPERTY(Config, EditAnywhere, Category = "Style | General")
+	ECrvLineStyle LineStyleIncoming = ECrvLineStyle::Dash;
 
 	UPROPERTY(Config, EditAnywhere, Category = "Style | General", DisplayName = "Line Color (Outgoing)")
 	FLinearColor LineColor = FLinearColor::Green;
 
+	UPROPERTY(Config, EditAnywhere, Category = "Style | General", DisplayName = "Line Color (Outgoing)")
+	FLinearColor LineColorComponent = FLinearColor(FColor::Emerald);
+
+	UPROPERTY(Config, EditAnywhere, Category = "Style | General", DisplayName = "Line Color (Outgoing)")
+	FLinearColor LineColorObject = FLinearColor(FColor::Cyan);
+	
 	UPROPERTY(Config, EditAnywhere, Category = "Style | General", DisplayName = "Line Color (Incoming)")
 	FLinearColor LineColorIncoming = FLinearColor::Blue;
 
@@ -138,22 +146,33 @@ class CTRLREFERENCEVISUALIZER_API UCrvSettings : public UDeveloperSettingsBacked
 
 public:
 	UCrvSettings();
-	virtual FName GetContainerName() const override { return FName("Editor"); }
+
+	virtual FName GetContainerName() const override
+	{
+		return FName("Editor");
+	}
+
 	virtual FText GetSectionText() const override;
+
 	virtual FText GetSectionDescription() const override;
 
 	UFUNCTION()
 	void AddComponentClass(const TSoftClassPtr<UActorComponent>& ComponentClass);
+
 	void SetEnabled(bool bNewEnabled);
+
 	void ToggleEnabled();
+
 	void SetShowIncomingReferences(bool bNewShowIncomingReferences);
+
 	void SetShowOutgoingReferences(bool bNewShowOutgoingReferences);
+
 	void Refresh();
+
 	void UpdateTargets();
 
 	UFUNCTION()
 	void CleanTargets();
-
 
 	/* Whether the reference viewer display is enabled */
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ConsoleVariable = "ctrl.ReferenceVisualizer"))
@@ -161,7 +180,6 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "General", meta=(MultiLine=true))
 	FText Help;
-	
 
 	UFUNCTION(BlueprintCallable, Exec, CallInEditor)
 	void Documentation() const;
@@ -170,7 +188,7 @@ public:
 	bool bShowOutgoingReferences = true;
 
 	UPROPERTY(Config, EditAnywhere, Category = "General", DisplayName = "Visualize Incoming References (Slow)")
-	bool bShowIncomingReferences = false;
+	bool bShowIncomingReferences = true;
 
 	UPROPERTY(Config, EditAnywhere, Category = "General", DisplayName = "Move Camera to Reference On Select")
 	bool bMoveViewportCameraToReference = false;
@@ -214,8 +232,8 @@ public:
 	bool bWalkChildActors = true;
 
 	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
-	bool bWalkObjectProperties = false;
-	
+	bool bWalkObjectProperties = true;
+
 	/* Skip ObjectArchetype references */
 	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
 	bool bIgnoreArchetype = true;
@@ -223,15 +241,16 @@ public:
 	/* Skip transient properties */
 	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
 	bool bIgnoreTransient = true;
-	
+
 	UPROPERTY(Config, EditAnywhere, AdvancedDisplay, Category = "General")
 	bool bDebugEnabled = false;
-	
+
 	UPROPERTY(EditAnywhere, AdvancedDisplay, Category = "General")
 	bool bRefreshEnabled = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "General", meta = (Bitmask, BitmaskEnum = "/Script/CtrlReferenceVisualizer.EReferenceChainSearchMode_K2"))
 	int32 ReferenceChainSearchModeIncoming = static_cast<int32>(EReferenceChainSearchMode_K2::Longest) | static_cast<int32>(EReferenceChainSearchMode_K2::Direct);
+
 	EReferenceChainSearchMode GetSearchModeIncoming() const;
 
 	/* Delegate called when this settings object is modified */
@@ -240,6 +259,7 @@ public:
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+
 	void CVarSink();
 #endif
 	virtual void PostInitProperties() override;

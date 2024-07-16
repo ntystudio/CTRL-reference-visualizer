@@ -4,6 +4,7 @@
 #include "CrvSettings.h"
 #include "CrvUtils.h"
 #include "CtrlReferenceVisualizer.h"
+#include "Algo/AnyOf.h"
 
 #define LOCTEXT_NAMESPACE "ReferenceVisualizer"
 
@@ -16,38 +17,89 @@ void FCrvRefCache::Invalidate(const FString& Reason)
 		const auto bDebugEnabled = GetDefault<UCrvSettings>()->bDebugEnabled;
 		UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("Invalidating cache... %s"), *Reason);
 	}
-	RootObject = nullptr;
-	RootComponent = nullptr;
+	RootObjects.Empty();
 	Outgoing.Reset();
 	Incoming.Reset();
 	bCached = false;
 	bHadValidItems = false;
 }
 
-TSet<UObject*> FCrvRefCache::GetValidCached(const bool bIsOutgoing)
+FCrvWeakSet ToWeakSet(FCrvSet& In)
 {
-	if (!bCached) { return {}; }
-	auto Cached = bIsOutgoing ? Outgoing : Incoming;
-	TSet<UObject*> Visited;
-	Visited.Reserve(Cached.Num());
-	bool bInvalidated = false;
-	for (const auto Ref : Cached)
+	FCrvWeakSet Out;
+	Out.Reserve(In.Num());
+	for (const auto Object : In)
 	{
-		if (!Ref.IsValid())
+		Out.Add(Object);
+	}
+	return MoveTemp(Out);
+}
+
+FCrvSet ResolveWeakSet(const FCrvWeakSet& Set, bool& bFoundInvalid)
+{
+	FCrvSet ValidPointers;
+	ValidPointers.Reserve(Set.Num());
+	bFoundInvalid = false;
+	for (const auto LinkedObject : Set)
+	{
+		if (LinkedObject.IsValid())
 		{
-			bInvalidated = true;
+			ValidPointers.Add(LinkedObject.Get());
+		}
+		else
+		{
+			bFoundInvalid = true;
+		}
+	}
+	return MoveTemp(ValidPointers);
+}
+
+FCrvSet ResolveWeakSet(const FCrvWeakSet& Set)
+{
+	bool bFoundInvalid = false;
+	return ResolveWeakSet(Set, bFoundInvalid);
+}
+
+FCrvObjectGraph ResolveWeakMap(const FCrvWeakObjectGraph& Graph, bool& bFoundInvalid)
+{
+	FCrvObjectGraph ValidItems;
+	ValidItems.Reserve(Graph.Num());
+	bFoundInvalid = false;
+	for (const auto [Object, WeakSetPtrs] : Graph)
+	{
+		if (!Object.IsValid())
+		{
+			bFoundInvalid = true;
 			continue;
 		}
-		Visited.Add(Ref.Get());
+		ValidItems.Add(Object.Get(), ResolveWeakSet(WeakSetPtrs));
 	}
-	if (bInvalidated)
+	return MoveTemp(ValidItems);
+}
+
+FCrvObjectGraph ResolveWeakMap(const FCrvWeakObjectGraph& Graph)
+{
+	bool bFoundInvalid = false;
+	return ResolveWeakMap(Graph, bFoundInvalid);
+}
+
+FCrvObjectGraph FCrvRefCache::GetValidCached(const bool bIsOutgoing)
+{
+	if (!bCached)
+	{
+		return {};
+	}
+	const auto Cached = bIsOutgoing ? Outgoing : Incoming;
+	bool bFoundInvalid = false;
+	auto ValidCached = ResolveWeakMap(Cached, bFoundInvalid);
+	if (bFoundInvalid)
 	{
 		Invalidate(FString::Printf(TEXT("Invalid %s references"), bIsOutgoing ? TEXT("Outgoing") : TEXT("Incoming")));
 	}
-	return Visited;
+	return MoveTemp(ValidCached);
 }
 
-void FCrvRefCache::FillReferences(const UObject* InRootObject, const bool bIsOutgoing)
+void FCrvRefCache::FillReferences(const UObject* InRootObject, FCrvWeakSet& LinkedObjects, bool bIsOutgoing)
 {
 	if (!IsValid(InRootObject))
 	{
@@ -56,61 +108,91 @@ void FCrvRefCache::FillReferences(const UObject* InRootObject, const bool bIsOut
 	}
 	const auto bDebugEnabled = GetDefault<UCrvSettings>()->bDebugEnabled;
 	UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("FillReferences cache... RootObject %s | %s"), *GetDebugName(InRootObject), bIsOutgoing ? TEXT("Outgoing") : TEXT("Incoming"));
+	const auto RootObject = const_cast<UObject*>(InRootObject);
 	TSet<UObject*> Visited;
 	TSet<UObject*> Found;
-	FCrvRefSearch::FindRefs(RootObject.Get(), Found, Visited, bIsOutgoing);
-	auto&& CachedItems = bIsOutgoing ? Outgoing : Incoming;
-	CachedItems.Empty(Found.Num());
-	if (RootObject == RootComponent)
+	FCrvRefSearch::FindRefs(RootObject, Found, Visited, bIsOutgoing);
+	LinkedObjects.Reserve(LinkedObjects.Num() + Found.Num());
+	for (const auto LinkedObject : Found)
 	{
-		Found.Add(RootComponent->GetOwner());
+		LinkedObjects.Add(LinkedObject);
 	}
-	for (const auto DstRef : Found)
-	{
-		CachedItems.Add(DstRef);
-	}
-	CachedItems.Compact();
-
-	if (!bHadValidItems)
-	{
-		UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("FillReferences Cache has %d valid items."), CachedItems.Num());
-		bHadValidItems = CachedItems.Num() > 0;
-	}
+	LinkedObjects.Compact();
 }
 
-void FCrvRefCache::FillCache(UObject* InRootObject, const bool bMultiple)
+template <typename T>
+bool AreSetsEqual(const T& Set, const T& RHS)
 {
-	if (RootObject != InRootObject)
+	return Set.Num() == RHS.Num() && Set.Difference(RHS).Num() == 0 && RHS.Difference(Set).Num() == 0;
+}
+
+bool HasValidItems(const FCrvWeakObjectGraph& CachedItems)
+{
+	for (const auto& [WeakObject, Items] : CachedItems)
 	{
-		Invalidate(FString::Printf(TEXT("FillCache: RootObject Changed %s -> %s"), *GetDebugName(RootObject.Get()), *GetDebugName(InRootObject)));
-		RootObject = InRootObject;
+		if (WeakObject.IsValid())
+		{
+			if (Items.Num() > 0)
+			{
+				return Algo::AnyOf(Items, [](const TWeakObjectPtr<UObject>& Item)
+				{
+					return Item.IsValid();
+				});
+			}
+		}
+	}
+	return false;
+}
+
+void FCrvRefCache::FillCache(FCrvSet InRootObjects, const bool bMultiple)
+{
+	if (!AreSetsEqual(ResolveWeakSet(RootObjects), InRootObjects))
+	{
+		Invalidate(FString::Printf(TEXT("FillCache: RootObjects Changed")));
+		RootObjects = ToWeakSet(InRootObjects);
 	}
 
-	if (!RootObject.IsValid())
+	for (const auto RootObject : RootObjects)
 	{
-		Invalidate(FString::Printf(TEXT("FillCache: Invalid RootObject: %s"), *GetDebugName(RootObject.Get())));
+		if (!RootObject.IsValid())
+		{
+			Invalidate(FString::Printf(TEXT("FillCache: Invalid RootObject: %s"), *GetDebugName(RootObject.Get())));
+			return;
+		}
+	}
+
+	if (bCached)
+	{
 		return;
 	}
 
-	if (bCached) { return; }
-
 	const auto Config = GetDefault<UCrvSettings>();
-	if (Config->bShowOutgoingReferences)
+	const auto bDebugEnabled = Config->bDebugEnabled;
+	for (const auto RootObjectWeak : RootObjects)
 	{
-		FillReferences(RootObject.Get(), true);
-	}
-	else
-	{
-		Outgoing.Empty();
+		if (Config->bShowOutgoingReferences)
+		{
+			FillReferences(RootObjectWeak.Get(), Outgoing.FindOrAdd(RootObjectWeak), true);
+		}
+		else
+		{
+			Outgoing.Empty();
+		}
+
+		if (Config->bShowIncomingReferences && !bMultiple)
+		{
+			FillReferences(RootObjectWeak.Get(), Incoming.FindOrAdd(RootObjectWeak), false);
+		}
+		else
+		{
+			Incoming.Empty();
+		}
 	}
 
-	if (Config->bShowIncomingReferences && !bMultiple)
+	if (!bHadValidItems)
 	{
-		FillReferences(RootObject.Get(), false);
-	}
-	else
-	{
-		Incoming.Empty();
+		// UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("FillReferences Cache has %d valid items."), CachedItems.Num());
+		bHadValidItems = HasValidItems(Outgoing) || HasValidItems(Incoming);
 	}
 
 	bCached = true;

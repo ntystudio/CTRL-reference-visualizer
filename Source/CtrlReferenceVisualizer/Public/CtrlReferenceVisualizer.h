@@ -4,6 +4,7 @@
 #include "ReferenceVisualizerComponent.h"
 #include "HAL/IConsoleManager.h"
 
+#include "CrvRefCache.h"
 #include "Modules/ModuleManager.h"
 
 class UToolMenu;
@@ -12,9 +13,14 @@ class UCrvSettings;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogCrv, Log, All);
 
+using FCrvSet = TSet<TObjectPtr<UObject>>;
+using FCrvWeakSet = TSet<TWeakObjectPtr<>>;
+using FCrvObjectGraph = TMap<TObjectPtr<UObject>, FCrvSet>;
+using FCrvWeakObjectGraph = TMap<TWeakObjectPtr<>, FCrvWeakSet>;
 class FCrvModule : public IModuleInterface
 {
 public:
+	mutable FCrvRefCache MenuCache;
 	void MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs) const;
 	void SelectReference(UObject* Object);
 	void InitActorMenu() const;

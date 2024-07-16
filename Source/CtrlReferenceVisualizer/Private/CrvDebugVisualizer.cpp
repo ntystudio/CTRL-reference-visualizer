@@ -39,12 +39,6 @@ void FCrvDebugVisualizer::DrawVisualization(
 	FPrimitiveDrawInterface* PDI
 )
 {
-	if (RootComponent != LastRootComponent.Get())
-	{
-		LastRootComponent = RootComponent;
-		UE_LOG(LogCrv, Log, TEXT("DrawVisualization %s %s %s"), *FString(__FUNCTION__), *CRV_LOG_LINE, *GetDebugName(RootComponent));
-	}
-
 	const auto Config = GetDefault<UCrvSettings>();
 	if (!Config->bIsEnabled)
 	{
@@ -72,24 +66,16 @@ void FCrvDebugVisualizer::DrawVisualization(
 		return;
 	}
 
-	TArray<UActorComponent*> SelectedComponents;
-	ensure(GEditor);
-	GEditor->GetSelectedComponents()->GetSelectedObjects<UActorComponent>(SelectedComponents);
-	TArray<AActor*> SelectedActors;
-	GEditor->GetSelectedActors()->GetSelectedObjects<AActor>(SelectedActors);
-	bMultiple = SelectedActors.Num() > 1 || SelectedComponents.Num() > 1;
-	if (SelectedComponents.Num() == 0 || Config->bAlwaysIncludeReferencesFromParent)
+	auto SelectionSet = FCrvRefSearch::GetSelectionSet();
+	
+	Cache.FillCache(SelectionSet, SelectionSet.Num() > 1);
+
+	for (const auto SelectedObject : SelectionSet)
 	{
-		// draw references for the actor
-		DrawVisualizationForRootObject(Owner, RootComponent, PDI);
-	}
-	else
-	{
-		// draw references for selected component(s)
-		for (const auto SelectedComponent : SelectedComponents)
+		if (!SelectedObject) { continue; }
+		if (SelectedObject == Owner || SelectedObject->IsInOuter(Owner))
 		{
-			if (SelectedComponent->GetOwner() != Owner) { continue; }
-			DrawVisualizationForRootObject(SelectedComponent, SelectedComponent, PDI);
+			DrawVisualizationForRootObject(SelectedObject, RootComponent, PDI);
 		}
 	}
 }
@@ -105,7 +91,6 @@ void FCrvDebugVisualizer::DrawVisualizationForRootObject(
 	FPrimitiveDrawInterface* PDI
 ) const
 {
-	Cache.FillCache(RootObject, bMultiple);
 	const auto SourceLocation = GetComponentLocation(RootComponent);
 	const auto Config = GetDefault<UCrvSettings>();
 	DrawDebugTarget(PDI, SourceLocation, Config->Style.CurrentCircleColor);
@@ -172,11 +157,13 @@ void FCrvDebugVisualizer::DrawLinks(
 		return;
 	}
 
-	TSet<UObject*> ReferencedObjects = Cache.GetValidCached(bIsOutgoing);
-	const TSet<UObject*> OtherReferencedObjects = Cache.GetValidCached(!bIsOutgoing);
-
+	auto Graph= Cache.GetValidCached(bIsOutgoing);
+	auto OtherGraph= Cache.GetValidCached(bIsOutgoing);
+	FVector Offset(0, 0, 10);
+	TObjectPtr<UObject> RootObjectPtr = const_cast<UObject*>(RootObject);
+	if (!Graph.Contains(RootObjectPtr)) { return; }
 	// draw links to referenced objects
-	for (const auto DstRef : ReferencedObjects)
+	for (const auto DstRef : Graph.FindRef(RootObjectPtr))
 	{
 		// handle actor references
 		if (const auto DstActor = Cast<AActor>(DstRef))
@@ -184,19 +171,18 @@ void FCrvDebugVisualizer::DrawLinks(
 			if (DstActor == Owner) { continue; }
 			auto DstLocation = GetActorOrigin(DstActor);
 			const auto HitProxy = new HCrvHitProxy(RootComponent, RootObject, DstActor);
-			FCrvHitProxyRef Ref = HitProxy;
-			if (bIsOutgoing || bMultiple)
+			if (bIsOutgoing)
 			{
 				DrawDebugTarget(PDI, DstLocation, Config->Style.LinkedCircleColor);
 				PDI->SetHitProxy(HitProxy);
-				DrawDebugLink(PDI, SourceLocation, DstLocation, Config->Style.LineColor);
+				DrawDebugLink(PDI, SourceLocation + Offset, DstLocation + Offset, true, RootObject->GetClass());
 				PDI->SetHitProxy(nullptr);
 			}
 			else
 			{
 				DrawDebugTarget(PDI, SourceLocation, Config->Style.CurrentCircleColor);
 				PDI->SetHitProxy(HitProxy);
-				DrawDebugLink(PDI, DstLocation, SourceLocation, Config->Style.LineColorIncoming);
+				DrawDebugLink(PDI, DstLocation - Offset, SourceLocation - Offset, false, DstActor->GetClass());
 				PDI->SetHitProxy(nullptr);
 			}
 			PDI->SetHitProxy(nullptr);
@@ -214,20 +200,18 @@ void FCrvDebugVisualizer::DrawLinks(
 			const FVector DestLocation = GetComponentLocation(DstActorComponent);
 			const auto HitProxy = new HCrvHitProxy(RootComponent, RootObject, DstActorComponent);
 
-			FCrvHitProxyRef Ref = HitProxy;
-
-			if (bIsOutgoing || bMultiple)
+			if (bIsOutgoing)
 			{
 				DrawDebugTarget(PDI, DestLocation, Config->Style.LinkedCircleColor);
 				PDI->SetHitProxy(HitProxy);
-				DrawDebugLink(PDI, SourceLocation, DestLocation, Config->Style.LineColor);
+				DrawDebugLink(PDI, SourceLocation, DestLocation, true, RootObject->GetClass());
 				PDI->SetHitProxy(nullptr);
 			}
 			else
 			{
 				DrawDebugTarget(PDI, SourceLocation, Config->Style.CurrentCircleColor);
 				PDI->SetHitProxy(HitProxy);
-				DrawDebugLink(PDI, DestLocation, SourceLocation, Config->Style.LineColorIncoming);
+				DrawDebugLink(PDI, DestLocation + Offset, SourceLocation + Offset, false, DstActorComponent->GetClass());
 				PDI->SetHitProxy(nullptr);
 			}
 			PDI->SetHitProxy(nullptr);
@@ -239,17 +223,21 @@ void FCrvDebugVisualizer::DrawDebugLink(
 	FPrimitiveDrawInterface* PDI,
 	const FVector& SrcOrigin,
 	const FVector& DstOrigin,
-	const FLinearColor& Color
+	const bool bIsOutgoing,
+	const UClass* Type
 ) const
 {
+	
 	const FVector Direction = (DstOrigin - SrcOrigin).GetSafeNormal();
 	const auto Config = GetDefault<UCrvSettings>();
 	float Distance = FVector::Distance(SrcOrigin, DstOrigin) - (Config->Style.CircleRadius * 2);
 	Distance = FMath::Max(1.f, Distance); // clamp distance to be at least 1
 	const auto SpacedSrcOrigin = SrcOrigin + Direction * Config->Style.CircleRadius;
 	const auto SpacedDstOrigin = SpacedSrcOrigin + Direction * Distance;
+	auto Color = bIsOutgoing ? Config->Style.LineColor : Config->Style.LineColorIncoming;
+	auto LineStyle = bIsOutgoing ? Config->Style.LineStyle : Config->Style.LineStyleIncoming;
 
-	if (Config->Style.LineStyle == ECrvLineStyle::Dash)
+	if (LineStyle == ECrvLineStyle::Dash)
 	{
 		DrawDashedLine(
 			PDI,
@@ -260,7 +248,7 @@ void FCrvDebugVisualizer::DrawDebugLink(
 			SDPG_Foreground
 		);
 	}
-	else if (Config->Style.LineStyle == ECrvLineStyle::Arrow)
+	else if (LineStyle == ECrvLineStyle::Arrow)
 	{
 		FVector YAxis, ZAxis;
 		Direction.FindBestAxisVectors(YAxis, ZAxis);

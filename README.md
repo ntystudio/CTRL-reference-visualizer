@@ -7,6 +7,14 @@ CTRL Reference Visualizer is an editor plugin for Unreal Engine 5 that enables l
 <br/>
 <br/>
 
+See the plugin in action below:
+<br/>
+
+[![CTRL Reference Visualizer v1.0 Showcase](https://github.com/user-attachments/assets/5c9e618f-3147-4fa6-84c7-8d631d2265cb)](https://youtu.be/87IMYG2a7Qs?si=AoTZWZp94m92QSyj)
+
+<br/>
+<br/>
+
 ## Features
 - Visualize references between Actors, Components and Objects.
 - Filters to disable references to/from specific classes. 

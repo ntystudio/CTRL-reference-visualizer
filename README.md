@@ -1,29 +1,26 @@
 <img src="https://github.com/user-attachments/assets/6836b4d6-fe10-46c5-8853-1205fa73adaf" width="450" height="100%" />
 
 ## Overview
-CTRL Reference Visualizer is a plugin for Unreal Engine 5 that enables game developers to see all outgoing and incoming (if enabled) actor references for a selected actor in the world.
+CTRL Reference Visualizer is an editor plugin for Unreal Engine 5 that enables level designers to see outgoing and incoming actor references for actors, components and objects in the world.
 
 <img src="https://github.com/user-attachments/assets/083a4021-bd14-4fc2-b70b-c6313bc8007f" width="700" height="100%" />
 <br/>
 <br/>
 
 ## Features
-- Visualize outgoing actor references
-- Visualize incoming actor references (disabled by default)
-- Set class references to ignore when visualizing referenced actors
-- Set the reference chain search mode when incoming actor references is enabled
-- Custom style setting for incoming lines, outgoing lines, and target circles
+- Visualize references between Actors, Components and Objects.
+- Filters to disable references to/from specific classes. 
+- Customizable line colour settings.
 
 <br/>
 
 ## Prerequisites
-- Unreal Engine 5.1+
-- .NET 8.0+
+- Unreal Engine 5.4+
 
 <br/>
 
 ## Get Started
-Once CTRL Reference Viewer is installed, you will see a new icon on the action bar above your editor window where you can enable/disable the plugin and access its settings.
+Once CTRL Reference Visualizer is installed, you will see a new icon on the action bar above your editor window where you can enable/disable the plugin and access its settings.
 
 <img src="https://github.com/user-attachments/assets/5806fcf3-3d40-45ea-abe2-aa2638da218e" width="700" height="100%" />
 <br/>
@@ -48,6 +45,7 @@ CTRL Reference Visualizer is part of the [NTY.studio](https://www.nty.studio/) C
 <br/>
 
 ## Feedback
+
 If you come across an issue while using the plugin or have a suggestion to improve the plugin, feel free to [open an issue](https://github.com/ntystudio/CTRL-reference-visualizer/issues) or leave a post in our [discord server](https://discord.gg/ntystudio) (CTRL Framework section in discord below).
 
 ![image](https://github.com/user-attachments/assets/07b8c1d0-a582-46dd-80dc-452ee5cf6ce2)

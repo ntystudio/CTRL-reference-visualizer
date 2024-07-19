@@ -10,6 +10,40 @@
 
 #define LOCTEXT_NAMESPACE "ReferenceVisualizer"
 
+FCrvLineStyle FCrvLineStyle::DefaultOutgoingLineStyle = {
+	// LineStyle
+	ECrvLineType::Arrow,
+	// LineColor
+	FColor::Green,
+	// LineColorComponent
+	FColor::Emerald,
+	// LineColorObject
+	FColor::Cyan,
+	// LineThickness
+	2.f,
+	// ArrowSize
+	10.f,
+	// Depth Priority
+	SDPG_Foreground
+};
+
+FCrvLineStyle FCrvLineStyle::DefaultIncomingLineStyle = {
+	// LineStyle
+	ECrvLineType::Dash,
+	// LineColor
+	FColor::Blue,
+	// LineColorComponent
+	(FLinearColor(FColor::Emerald) * FLinearColor::Blue).ToFColor(true),
+	// LineColorObject
+	(FLinearColor(FColor::Cyan) * FLinearColor::Blue).ToFColor(true),
+	// LineThickness
+	1.f,
+	// ArrowSize
+	5.f,
+	// Depth Priority
+	SDPG_Foreground
+};
+
 FCrvStyleSettings::FCrvStyleSettings()
 {
 }
@@ -124,6 +158,16 @@ void UCrvSettings::CleanTargets()
 	);
 }
 
+bool UCrvSettings::IsEnabled() const
+{
+	return bIsEnabled;
+}
+
+bool UCrvSettings::GetAutoAddComponents() const
+{
+	return IsEnabled() && bAutoAddComponents;
+}
+
 // Function to open plugin documentation
 void OpenPluginDocumentation(const FString& PluginName)
 {
@@ -175,12 +219,12 @@ void UCrvSettings::PostInitProperties()
 	UpdateTargets();
 }
 
-EReferenceChainSearchMode UCrvSettings::GetSearchModeIncoming() const
-{
-	return static_cast<EReferenceChainSearchMode>(ReferenceChainSearchModeIncoming);
-}
-
 #if WITH_EDITOR
+
+FCrvLineStyle UCrvSettings::GetLineStyle(const ECrvDirection Direction) const
+{
+	return Direction == ECrvDirection::Incoming ? Style.LineStyleIncoming : Style.LineStyleOutgoing;
+}
 
 void UCrvSettings::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {

@@ -2,22 +2,54 @@
 
 #include "CoreMinimal.h"
 #include "CrvHitProxy.h"
+#include "CrvSettings.h"
+#include "CrvUtils.h"
+#include "CtrlReferenceVisualizer.h"
+#include "CrvRefCache.generated.h"
 
-struct FCrvRefCache
+class UReferenceVisualizerComponent;
+using namespace CtrlRefViz;
+
+UCLASS(Transient, Hidden)
+class UCrvRefCache : public UObject
 {
-	void FillReferences(const UObject* InRootObject, TSet<TWeakObjectPtr<>>& LinkedObjects, bool bIsOutgoing);
+	GENERATED_BODY()
+public:
+	static FCrvSet GenerateRootObjects();
+	static FCrvSet GenerateAllRootObjects();
 
-	void FillCache(TSet<TObjectPtr<UObject>> InRootObjects, const bool bMultiple);
+	bool HasValues() const;
+	bool Contains(const UObject* Object) const;
+
+	void FillCache(const FCrvSet& InRootObjects);
+	void Reset(const FString& String);
+	// reset + schedule update
 	void Invalidate(const FString& Reason);
 
-	TMap<TWeakObjectPtr<UObject>, TSet<TWeakObjectPtr<UObject>>> Outgoing;
-	TMap<TWeakObjectPtr<UObject>, TSet<TWeakObjectPtr<UObject>>> Incoming;
+	// Get all incoming/outgoing references for a given object
+	TSet<UObject*> GetReferences(const UObject* Object, ECrvDirection Direction);
+	FCrvObjectGraph GetValidCached(ECrvDirection Direction);
 
-	TSet<TWeakObjectPtr<UObject>> RootObjects;
+	void UpdateCache();
+	void ScheduleUpdate();
+
+	FCrvWeakGraph Outgoing;
+	FCrvWeakGraph Incoming;
+	// Objects we want to find references for
+	UPROPERTY(Transient)
+	TSet<TWeakObjectPtr<UObject>> WeakRootObjects;
+	void AutoAddComponents(const FCrvSet& InRootObjects);
+
 	bool bCached = false;
 	bool bHadValidItems = false;
 
-	TMap<TObjectPtr<UObject>, TSet<TObjectPtr<UObject>>> GetValidCached(bool bIsOutgoing);
+	DECLARE_MULTICAST_DELEGATE(FOnCacheUpdated)
+	FOnCacheUpdated OnCacheUpdated;
+protected:
+	UPROPERTY(Transient)
+	TSet<TWeakObjectPtr<UReferenceVisualizerComponent>> AutoCreatedComponents;
+private:
+	FTimerHandle UpdateCacheNextTickHandle;
 };
 
 struct FCrvHitProxyRef

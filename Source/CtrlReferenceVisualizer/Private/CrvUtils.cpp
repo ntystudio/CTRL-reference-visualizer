@@ -1,6 +1,6 @@
 ﻿#include "CrvUtils.h"
 
-FString CRV::GetDebugName(const UObject* Object)
+FString CtrlRefViz::GetDebugName(const UObject* Object)
 {
 	if (!Object)
 	{
@@ -18,8 +18,12 @@ FString CRV::GetDebugName(const UObject* Object)
 	return FString::Printf(TEXT("<%s>%s"), *GetNameSafe(Object->GetClass()), *Name);
 }
 
+AActor* CtrlRefViz::GetOwner(const UObject* Object)
+{
+	return GetOwner(const_cast<UObject*>(Object));
+}
 
-AActor* CRV::GetOwner(UObject* Object)
+AActor* CtrlRefViz::GetOwner(UObject* Object)
 {
 	if (!Object) { return nullptr; }
 	if (const auto Actor = Cast<AActor>(Object))

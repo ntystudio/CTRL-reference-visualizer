@@ -1,8 +1,10 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
-#include "CtrlReferenceVisualizer.h"
+#include "CrvUtils.h"
 #include "UObject/ReferenceChainSearch.h"
+
+using namespace CtrlRefViz;
 
 struct FCrvMenuItem
 {
@@ -13,18 +15,11 @@ struct FCrvMenuItem
 	FUIAction Action;
 };
 
-struct FCrvRefChainNode
-{
-	TWeakObjectPtr<UObject> Referencer;
-	TWeakObjectPtr<UObject> Object;
-	FName ReferencerName;
-	FReferenceChainSearch::EReferenceType Type;
-};
-
-namespace CRV::Search
+namespace CtrlRefViz::Search
 {
 	FString LexToString(const FReferenceChainSearch::FReferenceChain* Chain);
 	bool IsExternal(const FReferenceChainSearch::FReferenceChain* Chain);
+	FCrvSet FindTargetObjects(UObject* RootObject);
 }
 
 class FCrvRefSearch
@@ -32,11 +27,9 @@ class FCrvRefSearch
 public:
 	static FCrvSet GetSelectionSet();
 
-	static void FindOutRefs(UObject* RootObject, TSet<UObject*>& LeafObjects, TSet<UObject*>& Visited, uint32 Depth = 0);
-	static void FindInRefs(UObject* RootObject, TSet<UObject*>& LeafObjects, TSet<UObject*>& Visited, const uint32 Depth = 0);
-	static void FindRefs(UObject* RootObject, TSet<UObject*>& LeafObjects, TSet<UObject*>& Visited, const bool bIsOutgoing);
+	static void FindOutRefs(FCrvSet RootObjects, FCrvObjectGraph& Graph);
+	static void FindInRefs(FCrvSet RootObjects, FCrvObjectGraph& Graph);
 	
-	static FReferenceChainSearch::FGraphNode* FindGraphNode(TArray<FReferenceChainSearch::FReferenceChain*> Chains, const UObject* Target);
 	static FCrvMenuItem MakeMenuEntry(const UObject* Parent, const UObject* Object);
 	static bool CanDisplayReference(const UObject* RootObject, const UObject* LeafObject);
 };

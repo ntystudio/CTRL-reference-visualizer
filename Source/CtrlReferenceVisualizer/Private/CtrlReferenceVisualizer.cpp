@@ -1,7 +1,6 @@
 ﻿#include "CtrlReferenceVisualizer.h"
 
 #include "CrvCommands.h"
-#include "CrvDebugVisualizer.h"
 #include "CrvRefSearch.h"
 #include "CrvSettings.h"
 #include "CrvStyle.h"
@@ -9,24 +8,19 @@
 #include "ISettingsModule.h"
 #include "LevelEditorSubsystem.h"
 #include "ObjectEditorUtils.h"
-#include "ReferenceVisualizerComponent.h"
-#include "Selection.h"
-#include "UnrealEdGlobals.h"
-
-#include "Editor/UnrealEdEngine.h"
 
 #include "Styling/SlateIconFinder.h"
 
 #include "UObject/Object.h"
 
 #define LOCTEXT_NAMESPACE "ReferenceVisualizer"
-using namespace CRV;
+using namespace CtrlRefViz;
 
 DEFINE_LOG_CATEGORY(LogCrv);
 
-void FCrvModule::MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs) const
+void FCrvModule::MakeReferenceListSubMenu(UToolMenu* SubMenu, const ECrvDirection Direction) const
 {
-	if (!GetDefault<UCrvSettings>()->bIsEnabled)
+	if (!GetDefault<UCrvSettings>()->IsEnabled())
 	{
 		const auto ToolEntry = FToolMenuEntry::InitMenuEntry(
 			FName("CtrlReferenceVisualizer_Disabled"),
@@ -38,18 +32,19 @@ void FCrvModule::MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs)
 		SubMenu->AddMenuEntry(FName("CtrlReferenceVisualizer_Disabled"), ToolEntry);
 		return;
 	}
-
-	MenuCache.FillCache(FCrvRefSearch::GetSelectionSet(), bFindOutRefs);
+	auto CrvEditorSubsystem = GEditor->GetEditorSubsystem<UReferenceVisualizerEditorSubsystem>();
+	auto MenuCache = CrvEditorSubsystem->MenuCache;
+	MenuCache->FillCache(FCrvRefSearch::GetSelectionSet());
 
 	bool bFoundEntry = false;
 	FCrvSet Visited;
-	auto ValidCache = MenuCache.GetValidCached(bFindOutRefs);
+	auto ValidCache = MenuCache->GetValidCached(Direction);
 	for (auto SelectedObject : FCrvRefSearch::GetSelectionSet())
 	{
-		UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("Find %s for SelectedObject: %s"), *SelectedObject->GetFullName(), bFindOutRefs ? TEXT("Outgoing") : TEXT("Incoming"));
-		auto FoundRefs = ValidCache.Find(SelectedObject);
-		if (!FoundRefs) { continue; }
-		auto Refs = *FoundRefs;
+		if (!SelectedObject) { return; }
+		UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("Find %s for SelectedObject: %s"), *SelectedObject->GetFullName(), Direction == ECrvDirection::Outgoing ? TEXT("Outgoing") : TEXT("Incoming"));
+		auto Refs = MenuCache->GetReferences(SelectedObject, Direction);
+		if (!Refs.Num()) { continue; }
 
 		auto RefsArray = Refs.Array();
 		RefsArray.Sort(
@@ -57,10 +52,8 @@ void FCrvModule::MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs)
 		);
 		for (auto Ref : RefsArray)
 		{
-			if (Visited.Contains(Ref))
-			{
-				continue;
-			}
+			if (Visited.Contains(Ref)) { continue; }
+
 			FToolMenuSection& Section = SubMenu->FindOrAddSection(FName(Ref->GetClass()->GetPathName()));
 			FToolMenuSection* SectionPtr = &Section;
 			if (auto BP = UBlueprint::GetBlueprintFromClass(Ref->GetClass()->GetAuthoritativeClass()))
@@ -153,7 +146,7 @@ void FCrvModule::InitActorMenu() const
 					FName("CtrlReferenceVisualizerOutgoing"),
 					LOCTEXT("OutgoingReferences", "Outgoing"),
 					LOCTEXT("OutgoingReferencesTooltip", "List of actor & component references from selected objects"),
-					FNewToolMenuDelegate::CreateRaw(this, &FCrvModule::MakeReferenceListSubMenu, true),
+					FNewToolMenuDelegate::CreateRaw(this, &FCrvModule::MakeReferenceListSubMenu, ECrvDirection::Outgoing),
 					FToolUIActionChoice(),
 					EUserInterfaceActionType::None,
 					false,
@@ -163,7 +156,7 @@ void FCrvModule::InitActorMenu() const
 					FName("CtrlReferenceVisualizerIncoming"),
 					LOCTEXT("IncomingReferences", "Incoming"),
 					LOCTEXT("IncomingReferencesTooltip", "List of incoming actor & component references to selected objects"),
-					FNewToolMenuDelegate::CreateRaw(this, &FCrvModule::MakeReferenceListSubMenu, false),
+					FNewToolMenuDelegate::CreateRaw(this, &FCrvModule::MakeReferenceListSubMenu, ECrvDirection::Incoming),
 					FToolUIActionChoice(),
 					EUserInterfaceActionType::None,
 					false,
@@ -194,17 +187,14 @@ void FCrvModule::InitActorMenu() const
 	auto* ActorContextMenu = UToolMenus::Get()->ExtendMenu("LevelEditor.ActorContextMenu");
 	auto&& Section = ActorContextMenu->FindOrAddSection(FName("Ctrl"));
 	Section.AddEntry(SubMenu);
-
 }
-
 
 void FCrvModule::MakeActorOptionsSubmenu(UToolMenu* Menu) const
 {
 	const auto CanExecuteIfEnabled = FCanExecuteAction::CreateLambda(
 		[this]()
 		{
-			const auto Config = GetDefault<UCrvSettings>();
-			return Config->bIsEnabled;
+			return FCrvModule::IsEnabled();
 		}
 	);
 	Menu->AddMenuEntry(
@@ -219,7 +209,7 @@ void FCrvModule::MakeActorOptionsSubmenu(UToolMenu* Menu) const
 					[this]()
 					{
 						auto* Settings = GetMutableDefault<UCrvSettings>();
-						Settings->SetEnabled(!Settings->bIsEnabled);
+						Settings->ToggleEnabled();
 						Settings->SaveConfig();
 						// get level editor viewport
 						auto* LevelEditor = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
@@ -230,8 +220,7 @@ void FCrvModule::MakeActorOptionsSubmenu(UToolMenu* Menu) const
 				FIsActionChecked::CreateLambda(
 					[this]()
 					{
-						auto* Settings = GetDefault<UCrvSettings>();
-						return Settings->bIsEnabled;
+						return FCrvModule::IsEnabled();
 					}
 				)
 			),
@@ -258,14 +247,14 @@ void FCrvModule::MakeActorOptionsSubmenu(UToolMenu* Menu) const
 				FIsActionChecked::CreateLambda(
 					[this]()
 					{
-						const auto Config = GetDefault<UCrvSettings>();
-						return Config->bShowIncomingReferences;
+						return GetDefault<UCrvSettings>()->bShowIncomingReferences;
 					}
 				)
 			),
 			EUserInterfaceActionType::ToggleButton
 		)
 	);
+
 	Menu->AddMenuEntry(
 		FName("CtrlReferenceVisualizer"),
 		FToolMenuEntry::InitMenuEntry(
@@ -285,8 +274,7 @@ void FCrvModule::MakeActorOptionsSubmenu(UToolMenu* Menu) const
 				FIsActionChecked::CreateLambda(
 					[this]()
 					{
-						const auto Config = GetDefault<UCrvSettings>();
-						return Config->bShowOutgoingReferences;
+						return GetDefault<UCrvSettings>()->bShowOutgoingReferences;
 					}
 				)
 			),
@@ -356,10 +344,10 @@ void FCrvModule::InitLevelMenus() const
 		LOCTEXT("CtrlReferenceVisualizerSubMenu_Tooltip", "Ctrl Reference Visualizer Actions"),
 		FNewToolMenuChoice(
 			FNewToolMenuDelegate::CreateLambda(
-				[this](UToolMenu* Menu)
+				[this](UToolMenu* SubMenu)
 				{
-					const auto MenuSection = Menu->AddSection("CtrlReferenceVisualizerSection", LOCTEXT("CtrlReferenceVisualizerSection", "Reference Visualizer"));
-					Menu->AddMenuEntry(
+					const auto MenuSection = SubMenu->AddSection("CtrlReferenceVisualizerSection", LOCTEXT("CtrlReferenceVisualizerSection", "Reference Visualizer"));
+					SubMenu->AddMenuEntry(
 						MenuSection.Name,
 						FToolMenuEntry::InitMenuEntry(
 							FName("CtrlReferenceVisualizer"),
@@ -371,7 +359,7 @@ void FCrvModule::InitLevelMenus() const
 									[this]()
 									{
 										auto* Settings = GetMutableDefault<UCrvSettings>();
-										Settings->SetEnabled(!Settings->bIsEnabled);
+										Settings->ToggleEnabled();
 										Settings->SaveConfig();
 										// get level editor viewport
 										auto* LevelEditor = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
@@ -382,16 +370,16 @@ void FCrvModule::InitLevelMenus() const
 								FIsActionChecked::CreateLambda(
 									[this]()
 									{
-										auto* Settings = GetDefault<UCrvSettings>();
-										return Settings->bIsEnabled;
+										return GetDefault<UCrvSettings>()->bIsEnabled;
 									}
 								)
 							),
 							EUserInterfaceActionType::ToggleButton
 						)
 					);
-					Menu->AddMenuEntry(MenuSection.Name, FToolMenuEntry::InitSeparator(NAME_None));
-					Menu->AddMenuEntry(MenuSection.Name, GetSettingsMenuEntry());
+
+					SubMenu->AddMenuEntry(MenuSection.Name, FToolMenuEntry::InitSeparator(NAME_None));
+					SubMenu->AddMenuEntry(MenuSection.Name, GetSettingsMenuEntry());
 				}
 			)
 		)
@@ -482,13 +470,6 @@ FToolMenuEntry FCrvModule::GetSettingsMenuEntry() const
 void FCrvModule::OnPostEngineInit()
 {
 	InitCategories();
-	UCrvSettings* Settings = GetMutableDefault<UCrvSettings>();
-	SettingsModifiedHandle = Settings->OnModified.AddRaw(this, &FCrvModule::OnSettingsModified);
-	Settings->AddComponentClass(UReferenceVisualizerComponent::StaticClass());
-	// add visualizer to actors when editor selection is changed
-	USelection::SelectionChangedEvent.AddRaw(this, &FCrvModule::OnSelectionChanged);
-
-	RegisterVisualizers();
 	FCrvCommands::Register();
 	InitActorMenu();
 	InitLevelMenus();
@@ -499,316 +480,23 @@ void FCrvModule::StartupModule()
 {
 	FCrvStyle::Startup();
 	FCrvStyle::Register();
-
 	FCoreDelegates::OnPostEngineInit.AddRaw(this, &FCrvModule::OnPostEngineInit);
-}
-
-void FCrvModule::DestroyAllCreatedComponents()
-{
-	UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("DestroyAllCreatedComponents"));
-	for (auto ExistingComponent : CreatedDebugComponents)
-	{
-		if (!ExistingComponent.IsValid())
-		{
-			continue;
-		}
-		if (auto OwningActor = ExistingComponent->GetOwner())
-		{
-			UE_CLOG(IsDebugEnabled(), LogCrv, Warning, TEXT("DestroyAllCreatedComponents: Remove %s from %s"), *ExistingComponent->GetName(), *GetDebugName(OwningActor));
-			OwningActor->RemoveOwnedComponent(ExistingComponent.Get());
-		}
-		else
-		{
-			UE_CLOG(IsDebugEnabled(), LogCrv, Warning, TEXT("DestroyAllCreatedComponents: Actor is not valid"));
-		}
-		ExistingComponent->DestroyComponent();
-	}
-
-	CreatedDebugComponents.Empty();
-}
-
-void FCrvModule::DestroyStaleDebugComponents(const TArray<AActor*>& CurrentActorSelection)
-{
-	// destroy any created debug components that are no longer needed
-	auto CurrentlyCreatedDebugComponents = CreatedDebugComponents;
-	for (auto ExistingComponent : CurrentlyCreatedDebugComponents)
-	{
-		if (!ExistingComponent.IsValid())
-		{
-			// if the component is no longer valid, remove it from the list
-			CreatedDebugComponents.Remove(ExistingComponent);
-			continue;
-		}
-
-		if (auto OwningActor = ExistingComponent->GetOwner())
-		{
-			// if the actor is no longer selected, destroy the component
-			if (!CurrentActorSelection.Contains(OwningActor))
-			{
-				UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("DestroyStaleDebugComponents: Destroying debug component for actor %s"), *GetDebugName(OwningActor));
-				CreatedDebugComponents.Remove(ExistingComponent);
-				ExistingComponent->DestroyComponent();
-			}
-			// otherwise, keep the component
-		}
-		else
-		{
-			UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("DestroyStaleDebugComponents: Destroying debug component for invalid actor."));
-			// if the actor is no longer valid, destroy the component
-			CreatedDebugComponents.Remove(ExistingComponent);
-			ExistingComponent->DestroyComponent();
-		}
-	}
-	if (CurrentlyCreatedDebugComponents.Num() != CreatedDebugComponents.Num())
-	{
-		UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("DestroyStaleDebugComponents: Destroyed %d stale debug components"), CurrentlyCreatedDebugComponents.Num() - CreatedDebugComponents.Num());
-	}
-}
-
-bool FCrvModule::HasDebugComponentForActor(const AActor* Actor) const
-{
-	if (Actor->FindComponentByClass<UReferenceVisualizerComponent>())
-	{
-		return true;
-	}
-	for (const auto ExistingComponent : CreatedDebugComponents)
-	{
-		if (!ExistingComponent.IsValid()) { UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("HasDebugComponentForActor: Found invalid debug component")); continue; }
-		if (ExistingComponent->GetOwner() == Actor)
-		{
-			UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("HasDebugComponentForActor: Found debug component for actor %s that didn't appear in FindComponent"), *GetDebugName(Actor));
-			return true;
-		}
-	}
-	return false;
-}
-
-bool FCrvModule::CreateDebugComponentsForActors(TArray<AActor*> Actors)
-{
-	DestroyStaleDebugComponents(Actors);
-	TArray<UReferenceVisualizerComponent*> NewDebugComponents;
-	NewDebugComponents.Reserve(Actors.Num());
-	for (const auto Actor : Actors)
-	{
-		if (!IsValid(Actor))
-		{
-			UE_CLOG(IsDebugEnabled(), LogCrv, Warning, TEXT("CreateDebugComponentsForActors: Actor is not valid"));
-			continue;
-		}
-		
-		// don't add debug components to actors that already have them (either auto-created or manually added)
-		if (HasDebugComponentForActor(Actor))
-		{
-			continue;
-		}
-
-		auto* DebugComponent = Cast<UReferenceVisualizerComponent>(
-			Actor->AddComponentByClass(
-				UReferenceVisualizerComponent::StaticClass(),
-				false,
-				FTransform::Identity,
-				false
-			)
-		);
-		
-		if (!DebugComponent)
-		{
-			UE_CLOG(IsDebugEnabled(), LogCrv, Warning, TEXT("CreateDebugComponentsForActors: Failed to add component to actor"));
-			continue;
-		}
-		
-		Actor->AddOwnedComponent(DebugComponent);
-		if (!DebugComponent->IsRegistered())
-		{
-			DebugComponent->RegisterComponent();
-		}
-		
-		UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("CreateDebugComponentsForActors: Created debug component for actor %s"), *Actor->GetName());
-		NewDebugComponents.Add(DebugComponent);
-	}
-	UE_CLOG(
-		IsDebugEnabled(),
-		LogCrv,
-		Log,
-		TEXT("CreateDebugComponentsForActors: Created %d debug components for %d actors. Total created components: %d"),
-		NewDebugComponents.Num(),
-		Actors.Num(),
-		CreatedDebugComponents.Num()
-	);
-	CreatedDebugComponents.Append(NewDebugComponents);
-	return NewDebugComponents.Num() > 0;
 }
 
 bool FCrvModule::IsEnabled()
 {
-	const auto Settings = GetDefault<UCrvSettings>();
-	return Settings->bIsEnabled;
+	return GetDefault<UCrvSettings>()->IsEnabled();
 }
 
 bool FCrvModule::IsDebugEnabled()
 {
-	const auto Settings = GetDefault<UCrvSettings>();
-	return Settings->bDebugEnabled;
-}
-
-void FCrvModule::OnSelectionChanged(UObject* SelectionObject)
-{
-	if (bIsRefreshingSelection) { return; }
-	TGuardValue<bool> ReentrantGuard(bIsRefreshingSelection, true);
-	if (!IsEnabled()) { DestroyAllCreatedComponents(); return; }
-	// if (SelectionObject != GEditor->GetSelectedActors()) { return; }
-	UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("OnSelectionChanged"));
-	// RegisterVisualizers();
-	RefreshSelection();
-}
-
-void FCrvModule::RefreshSelection()
-{
-	if (!IsEnabled())
-	{
-		DestroyAllCreatedComponents();
-		return;
-	}
-
-	USelection* Selection = Cast<USelection>(GEditor->GetSelectedActors());
-	if (!Selection)
-	{
-		UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("RefreshSelection: No selection"));
-		return;
-	}
-
-	TArray<AActor*> SelectedActors;
-	Selection->GetSelectedObjects<AActor>(SelectedActors);
-	UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("RefreshSelection: %d actors selected"), SelectedActors.Num());
-	if (CreateDebugComponentsForActors(SelectedActors))
-	{
-		UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("RefreshSelection: Created debug components for %d actors"), SelectedActors.Num());
-		Selection->BeginBatchSelectOperation();
-		Selection->ForceBatchDirty();
-		for (const auto SelectedActor : SelectedActors)
-		{
-			Selection->Deselect(SelectedActor);
-			Selection->Select(SelectedActor);
-		}
-		Selection->EndBatchSelectOperation();
-		Selection->NoteSelectionChanged();
-	}
-}
-
-TSharedPtr<FCrvDebugVisualizer> FCrvModule::GetDefaultVisualizer()
-{
-	return StaticCastSharedPtr<FCrvDebugVisualizer>(
-		GUnrealEd->FindComponentVisualizer(
-			UReferenceVisualizerComponent::StaticClass()
-		)
-	);
-}
-
-void FCrvModule::RegisterVisualizers()
-{
-	if (!GUnrealEd) { return; }
-
-	if (!IsEnabled())
-	{
-		UnregisterVisualizers();
-		return;
-	}
-	UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("RegisterVisualizers"));
-
-	// track items to remove.
-	// if item is in RegisteredClasses but not in Classes, then it should be removed
-	// start with all registered classes, remove as we find them in Classes
-	// at the end, all items left in ToRemove should be removed
-	const auto* Settings = GetDefault<UCrvSettings>();
-	auto ToRemove = RegisteredClasses; // all registered classes
-	for (const auto SoftClassPtr : Settings->TargetSettings.TargetComponentClasses)
-	{
-		if (SoftClassPtr.IsPending())
-		{
-			ToRemove.Empty(); // do no removing if any class is pending
-			UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("\tRegisterVisualizers: Skipping pending class %s"), *SoftClassPtr.ToString());
-			continue;
-		}
-		if (SoftClassPtr.IsNull()) { continue; } // do nothing if class is null
-		if (!SoftClassPtr.IsValid()) { continue; } // invalid & not pending class will be removed
-
-		auto ClassName = SoftClassPtr->GetFName();
-		ToRemove.Remove(ClassName); // remove from removal list (do first, so we don't accidentally remove the class)
-		// do nothing if class is already registered
-		if (GUnrealEd->FindComponentVisualizer(ClassName)) { continue; }
-
-		// don't register classes that are already registered
-		if (RegisteredClasses.Contains(ClassName)) { continue; }
-		RegisteredClasses.Add(ClassName);
-		const auto Visualizer = MakeShared<FCrvDebugVisualizer>();
-		UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("\tRegister Visualizer: %s"), *ClassName.ToString());
-		GUnrealEd->RegisterComponentVisualizer(ClassName, Visualizer);
-		Visualizer->OnRegister();
-	}
-
-	// remove any previously registered classes that are no longer registered
-	for (const auto ClassName : ToRemove)
-	{
-		UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("\tUnregister Visualizer: %s"), *ClassName.ToString());
-		RegisteredClasses.Remove(ClassName);
-		GUnrealEd->UnregisterComponentVisualizer(ClassName);
-	}
-	bDidRegisterVisualizers = true;
-}
-
-void FCrvModule::UnregisterVisualizers()
-{
-	auto CurrentClasses = RegisteredClasses;
-	RegisteredClasses.Empty();
-	bDidRegisterVisualizers = false;
-	if (!GUnrealEd) { return; }
-	UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("UnregisterVisualizers"));
-	for (const auto ClassName : CurrentClasses)
-	{
-		UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("\tUnregister Visualizer: %s"), *ClassName.ToString());
-		GUnrealEd->UnregisterComponentVisualizer(ClassName);
-	}
-}
-
-
-void FCrvModule::Refresh(const bool bForceRefresh)
-{
-	if (!GetDefault<UCrvSettings>()->bRefreshEnabled) { return; }
-
-	static bool bLastEnabled = !IsEnabled(); // force refresh on first call
-	const auto bIsEnabled = IsEnabled();
-	const auto bEnabledChanged = bLastEnabled != bIsEnabled;
-	bLastEnabled = bIsEnabled;
-	UE_CLOG(IsDebugEnabled(), LogCrv, Log, TEXT("Refresh: bForceRefresh: %d, bIsEnabled: %d, bEnabledChanged: %d"), bForceRefresh, bIsEnabled, bEnabledChanged);
-	if (bForceRefresh)
-	{
-		UnregisterVisualizers();
-	}
-
-	bIsEnabled ? RegisterVisualizers() : UnregisterVisualizers();
-
-	if (bEnabledChanged || bForceRefresh)
-	{
-		RefreshSelection();
-	}
-}
-void FCrvModule::QueueRefresh(bool bForceRefresh)
-{
-	if (!IsEnabled()) { return; }
-	if (!GEditor) { return; }
-	if (GEditor->GetTimerManager()->IsTimerPending(RefreshTimerHandle)) { return; } // already queued
-	RefreshTimerHandle = GEditor->GetTimerManager()->SetTimerForNextTick(
-		FTimerDelegate::CreateRaw(this, &FCrvModule::Refresh, bForceRefresh)
-	);
+	return IsEnabled() && GetDefault<UCrvSettings>()->bDebugEnabled;
 }
 
 void FCrvModule::ShutdownModule()
 {
 	if (!UObjectInitialized()) { return; }
 	SettingsModifiedHandle.Reset();
-	RefreshTimerHandle.Invalidate();
-	DestroyAllCreatedComponents();
-	UnregisterVisualizers();
 	FCrvCommands::Unregister();
 	FCrvStyle::Shutdown();
 }
@@ -819,15 +507,13 @@ void FCrvModule::AddTargetComponentClass(UClass* Class)
 	Settings->AddComponentClass(Class);
 }
 
-void FCrvModule::OnSettingsModified(UObject* Object, FProperty* Property)
-{
-	Refresh(false);
-}
-
 void FCrvModule::InitCategories()
 {
 	FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
-	auto IsRelevantClass = [](UClass* Class) { return Class->GetClassPathName().ToString().StartsWith("/CtrlReferenceVisualizer"); };
+	auto IsRelevantClass = [](UClass* Class)
+	{
+		return Class->GetClassPathName().ToString().StartsWith("/Script/CtrlReferenceVisualizer");
+	};
 
 	for (auto* const Class : TObjectRange<UClass>())
 	{

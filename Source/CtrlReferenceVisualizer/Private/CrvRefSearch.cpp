@@ -9,10 +9,11 @@
 #include "Styling/SlateIconFinder.h"
 
 #include "UObject/ReferenceChainSearch.h"
-using namespace CRV;
+#include "UObject/ReferencerFinder.h"
 
+using namespace CtrlRefViz;
 
-namespace CRV::Search
+namespace CtrlRefViz::Search
 {
 	bool IsExternal(const FReferenceChainSearch::FReferenceChain* Chain)
 	{
@@ -32,8 +33,60 @@ namespace CRV::Search
 		}
 	}
 
+	template <typename T>
+	void TryAddValue(FCrvSet& Found, T PropValue)
+	{
+		if (!PropValue.IsValid()) { return; }
+		Found.Add(PropValue.Get());
+	}
 
-	TSet<UObject*> FindOwnedObjects(UObject* Target)
+	TArray<UObject*> FindSoftObjectReferences(const UObject* RootObject)
+	{
+		if (!IsValid(RootObject)) { return {}; }
+		const auto Settings = GetDefault<UCrvSettings>();
+		FCrvSet Found;
+		if (Settings->bWalkObjectProperties && RootObject->GetClass())
+		{
+			for (TFieldIterator<FObjectPropertyBase> PropIt(RootObject->GetClass(), EFieldIterationFlags::IncludeSuper); PropIt; ++PropIt)
+			{
+				if (const auto SoftObjectProperty = CastField<FSoftObjectProperty>(*PropIt))
+				{
+					TryAddValue(Found, SoftObjectProperty->GetPropertyValue_InContainer(RootObject));
+				}
+				else if (const auto WeakObjectProperty = CastField<FWeakObjectProperty>(*PropIt))
+				{
+					TryAddValue(Found, WeakObjectProperty->GetPropertyValue_InContainer(RootObject));
+				}
+				else if (const auto LazyObjectProperty = CastField<FLazyObjectProperty>(*PropIt))
+				{
+					TryAddValue(Found, LazyObjectProperty->GetPropertyValue_InContainer(RootObject));
+				}
+			}
+		}
+		return Found.Array();
+	}
+
+	FCrvSet FindOwnedObjects(FCrvSet Targets)
+	{
+		const auto CrvSettings = GetDefault<UCrvSettings>();
+		TArray<UObject*> Owned;
+		for (const auto Target : Targets)
+		{
+			FReferenceFinder RefFinder(
+				Owned,
+				Target,
+				false,
+				CrvSettings->bIgnoreArchetype,
+				CrvSettings->bIsRecursive,
+				CrvSettings->bIgnoreTransient
+			);
+			RefFinder.FindReferences(Target);
+		}
+
+		return TSet(Owned);
+	}
+
+	FCrvSet FindOwnedObjects(UObject* Target)
 	{
 		const auto CrvSettings = GetDefault<UCrvSettings>();
 		TArray<UObject*> Owned;
@@ -50,6 +103,7 @@ namespace CRV::Search
 		return TSet(Owned);
 	}
 
+#pragma region GetObjectFlagsString
 	FString GetObjectFlagsString(const UObject* InObject)
 	{
 		if (!InObject)
@@ -123,50 +177,15 @@ namespace CRV::Search
 
 		return FString::Printf(TEXT("%s"), *FString::Join(Flags, TEXT(", ")));
 	}
-}
-
-FString LexToString(const FReferenceChainSearch::FReferenceChain* Chain)
-{
-	FString Result;
-	if (!Chain)
-	{
-		return Result;
-	}
-	if (const auto RootNode = Chain->GetRootNode())
-	{
-		Result += FString::Printf(
-			TEXT("Chain Num %d External %s Root %s\n"),
-			Chain->Num(),
-			*::LexToString(Search::IsExternal(Chain)),
-			*GetDebugName(RootNode->ObjectInfo->TryResolveObject())
-		);
-	}
-	for (int32 i = 0; i < Chain->Num(); ++i)
-	{
-		const auto GraphNode = Chain->GetNode(i);
-		auto Indent = FString::ChrN(i + 1, TEXT('\t'));
-		if (const auto Object = GraphNode->ObjectInfo->TryResolveObject())
-		{
-			Result += FString::Printf(TEXT("%d %s %s"), i, *Indent, *GetDebugName(Object));
-			if (const auto RefInfo = Chain->GetReferenceInfo(i))
-			{
-				Result += RefInfo->ToString();
-			}
-			Result += TEXT("\n");
-		}
-		for (const auto RefGraphNode : GraphNode->ReferencedByObjects)
-		{
-			Result += FString::Printf(TEXT("%s\tReferenced by %s\n"), *Indent, *GetDebugName(RefGraphNode->ObjectInfo->TryResolveObject()));
-		}
-	}
-	return MoveTemp(Result);
+#pragma endregion GetObjectFlagsString
 }
 
 FCrvMenuItem FCrvRefSearch::MakeMenuEntry(const UObject* Parent, const UObject* Object)
 {
+	static FCrvMenuItem Empty;
 	if (!Object)
 	{
-		return {};
+		return Empty;
 	}
 	const auto FlagsString = Search::GetObjectFlagsString(Object);
 	const auto PackageShortName = FPackageName::GetShortName(Object->GetPackage()->GetName());
@@ -240,61 +259,7 @@ bool IsObjectProperty(const FProperty* InProperty)
 	return CastField<FObjectPropertyBase>(InProperty) != nullptr;
 }
 
-void LogItems(const bool bIsEnabled, const TSet<UObject*>& Items, const int32 IndentLevel = 0)
-{
-	if (!bIsEnabled) { return; }
-	static TSet<UObject*> LastItems;
-	const auto Indent = FString::ChrN(IndentLevel + 1, TEXT('\t'));
-	int32 Index = 0;
-	UE_CLOG(bIsEnabled, LogCrv, Log, TEXT("%sItems [Num: %d, Prev %d]:\n"), *Indent, Items.Num(), LastItems.Num());
-	const bool bIsSame = Items.Num() == LastItems.Num() && LastItems.Difference(Items).Num() == 0 && Items.Difference(LastItems).Num() == 0;
-	if (bIsSame)
-	{
-		// same, do not log all elements
-		UE_CLOG(bIsEnabled, LogCrv, Log, TEXT("%s\tSame as Previous\n"), *Indent);
-		return;
-	}
-
-	LastItems = Items;
-	for (const auto Item : Items)
-	{
-		UE_CLOG(bIsEnabled, LogCrv, Log, TEXT("\t%d%s%s\n"), Index++, *Indent, *GetDebugName(Item));
-	}
-}
-
-template <typename T>
-void TryAddValue(TSet<UObject*>& Found, T PropValue)
-{
-	if (!PropValue.IsValid()) { return; }
-	Found.Add(PropValue.Get());
-}
-
-TArray<UObject*> FindSoftObjectReferences(const UObject* RootObject)
-{
-	if (!IsValid(RootObject)) { return {}; }
-	const auto Settings = GetDefault<UCrvSettings>();
-	TSet<UObject*> Found;
-	if (Settings->bWalkObjectProperties && RootObject->GetClass())
-	{
-		for (TFieldIterator<FObjectPropertyBase> PropIt(RootObject->GetClass(), EFieldIterationFlags::IncludeSuper); PropIt; ++PropIt)
-		{
-			if (const auto SoftObjectProperty = CastField<FSoftObjectProperty>(*PropIt))
-			{
-				TryAddValue(Found, SoftObjectProperty->GetPropertyValue_InContainer(RootObject));
-			}
-			else if (const auto WeakObjectProperty = CastField<FWeakObjectProperty>(*PropIt))
-			{
-				TryAddValue(Found, WeakObjectProperty->GetPropertyValue_InContainer(RootObject));
-			}
-			else if (const auto LazyObjectProperty = CastField<FLazyObjectProperty>(*PropIt))
-			{
-				TryAddValue(Found, LazyObjectProperty->GetPropertyValue_InContainer(RootObject));
-			}
-		}
-	}
-	return Found.Array();
-}
-
+#pragma region CanDisplayReference
 bool FCrvRefSearch::CanDisplayReference(const UObject* RootObject, const UObject* LeafObject)
 {
 	if (!IsValid(LeafObject))
@@ -366,6 +331,7 @@ bool FCrvRefSearch::CanDisplayReference(const UObject* RootObject, const UObject
 
 	return CrvSettings->bShowObjects;
 }
+#pragma endregion CanDisplayReference
 
 FCrvSet FCrvRefSearch::GetSelectionSet()
 {
@@ -373,10 +339,10 @@ FCrvSet FCrvRefSearch::GetSelectionSet()
 	TArray<UObject*> SelectedComponents;
 	GEditor->GetSelectedActors()->GetSelectedObjects(SelectedActors);
 	GEditor->GetSelectedComponents()->GetSelectedObjects(SelectedComponents);
-	TSet<UObject*> Selected;
+	FCrvSet Selected;
 	Selected.Append(SelectedActors);
 	Selected.Append(SelectedComponents);
-	
+
 	FCrvSet SelectedSet;
 	SelectedSet.Append(Selected);
 	return MoveTemp(SelectedSet);
@@ -390,84 +356,48 @@ static auto GetCanDisplayReference(UObject* RootObject)
 	};
 }
 
-static void FilterRefs(UObject* RootObject, TSet<UObject*>& LeafObjects)
+FCrvSet Search::FindTargetObjects(UObject* RootObject)
 {
-	auto* const CrvSettings = GetDefault<UCrvSettings>();
-	const auto bDebugEnabled = CrvSettings->bDebugEnabled;
-	UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("FilterRefs LeafObjects >> [Num: %d]"), LeafObjects.Num());
-	LeafObjects.Remove(RootObject);
-	const auto Current = LeafObjects;
-	LeafObjects.Reset(); // keeps allocations
-	LeafObjects.Append(
-		Current.Array().FilterByPredicate(GetCanDisplayReference(RootObject))
-	);
-	LeafObjects.Compact();
-	UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("FilterRefs LeafObjects << [Num: %d]"), LeafObjects.Num());
-};
-
-void FCrvRefSearch::FindRefs(UObject* RootObject, TSet<UObject*>& LeafObjects, TSet<UObject*>& Visited, const bool bIsOutgoing)
-{
-	if (bIsOutgoing)
-	{
-		FindOutRefs(RootObject, LeafObjects, Visited);
-	}
-	else
-	{
-		FindInRefs(RootObject, LeafObjects, Visited);
-	}
+	static FCrvSet Empty;
+	if (!IsValid(RootObject)) { return Empty; }
+	FCrvSet TargetObjects;
+	TargetObjects.Append(Search::FindOwnedObjects(RootObject));
+	TargetObjects.Add(RootObject);
+	return MoveTemp(TargetObjects);
 }
 
-void FCrvRefSearch::FindOutRefs(UObject* RootObject, TSet<UObject*>& LeafObjects, TSet<UObject*>& Visited, uint32 Depth)
+void FCrvRefSearch::FindOutRefs(FCrvSet RootObjects, FCrvObjectGraph& Graph)
 {
-	if (!IsValid(RootObject))
-	{
-		return;
-	}
 	auto* const CrvSettings = GetDefault<UCrvSettings>();
-	const auto bDebugEnabled = CrvSettings->bDebugEnabled;
-	const auto Indent = FString::ChrN(Depth * 1, TEXT('\t'));
-
-	UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("%sFinding FindOutRefs for '%s' [Num %d] >>"), *Indent, *GetDebugName(RootObject), LeafObjects.Num());
-
-	TSet<UObject*> TargetObjects;
-	TargetObjects.Add(RootObject);
-	TargetObjects.Append(Search::FindOwnedObjects(RootObject));
-
-	const auto SearchIndent = FString::ChrN(Depth + 1, TEXT('\t'));
-	for (const auto Object : TargetObjects)
+	Graph.Reserve(RootObjects.Num());
+	Graph.Reset();
+	for (auto RootObject : RootObjects)
 	{
-		if (!Object) { continue; }
-		if (CrvSettings->TargetSettings.IgnoreReferencesToClasses.Contains(Object->GetClass()))
+		FCrvSet RootObjectReferences;
+		const auto TargetObjects = Search::FindTargetObjects(RootObject);
+		for (const auto TargetObject : TargetObjects)
 		{
-			return;
+			TArray<UObject*> NewItemsArray;
+			FReferenceFinder RefFinder(
+				NewItemsArray,
+				nullptr,
+				false,
+				CrvSettings->bIgnoreArchetype,
+				CrvSettings->bIsRecursive,
+				CrvSettings->bIgnoreTransient
+			);
+			RefFinder.FindReferences(TargetObject);
+			RootObjectReferences.Append(NewItemsArray.FilterByPredicate(GetCanDisplayReference(RootObject)));
 		}
-
-		TArray<UObject*> NewItemsArray;
-		FReferenceFinder RefFinder(
-			NewItemsArray,
-			nullptr,
-			false,
-			CrvSettings->bIgnoreArchetype,
-			false,
-			CrvSettings->bIgnoreTransient
-		);
-		RefFinder.FindReferences(Object);
-
-		auto NewItems = TSet(NewItemsArray);
-		if (CrvSettings->bWalkObjectProperties)
+		for (const auto TargetObject : TargetObjects)
 		{
-			auto NewSoftItems = FindSoftObjectReferences(Object);
-			NewItems.Append(NewSoftItems);
+			if (CrvSettings->bWalkObjectProperties)
+			{
+				RootObjectReferences.Append(Search::FindSoftObjectReferences(TargetObject).FilterByPredicate(GetCanDisplayReference(RootObject)));
+			}
 		}
-		NewItems = TSet(NewItems.Array().FilterByPredicate(GetCanDisplayReference(RootObject)));
-		NewItems = NewItems.Difference(LeafObjects);
-		LeafObjects.Append(NewItems);
+		Graph.Add(RootObject, RootObjectReferences);
 	}
-
-	const auto BeforeFiltering = LeafObjects.Num();
-	FilterRefs(RootObject, LeafObjects);
-	UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("%sFinding FindOutRefs for '%s' << [BeforeFiltering: %d Num: %d]"), *Indent, *GetDebugName(RootObject), BeforeFiltering, LeafObjects.Num());
-	LogItems(bDebugEnabled, LeafObjects, Depth);
 }
 
 bool ChainContains(const FReferenceChainSearch::FReferenceChain* Chain, const UObject* Object)
@@ -494,75 +424,14 @@ bool ChainContains(const FReferenceChainSearch::FReferenceChain* Chain, const UO
 	return false;
 }
 
-FReferenceChainSearch::FGraphNode* FCrvRefSearch::FindGraphNode(TArray<FReferenceChainSearch::FReferenceChain*> Chains, const UObject* Target)
+void FCrvRefSearch::FindInRefs(FCrvSet RootObjects, FCrvObjectGraph& Graph)
 {
-	for (const auto Chain : Chains)
+	Graph.Reserve(RootObjects.Num());
+	for (auto RootObject : RootObjects)
 	{
-		for (int32 i = 0; i < Chain->Num(); i++)
-		{
-			const auto GraphNode = Chain->GetNode(i);
-			const auto Object = GraphNode->ObjectInfo->TryResolveObject();
-			if (Object == Target)
-			{
-				return GraphNode;
-			}
-		}
+		auto TargetObjects = Search::FindTargetObjects(RootObject);
+		auto Referencers = FReferencerFinder::GetAllReferencers(TargetObjects, nullptr, EReferencerFinderFlags::SkipInnerReferences);
+		auto Filtered = Referencers.FilterByPredicate(GetCanDisplayReference(RootObject));
+		Graph.Add(RootObject, TSet(Filtered));
 	}
-	return nullptr;
-}
-
-void FCrvRefSearch::FindInRefs(UObject* RootObject, TSet<UObject*>& LeafObjects, TSet<UObject*>& Visited, const uint32 Depth)
-{
-	if (!IsValid(RootObject))
-	{
-		UE_CLOG(GetDefault<UCrvSettings>()->bDebugEnabled, LogCrv, Warning, TEXT("FindInRefs: Invalid RootObject"));
-		return;
-	}
-	const auto Indent = FString::ChrN(Depth * 1, TEXT('|'));
-	const auto CrvSettings = GetMutableDefault<UCrvSettings>();
-	const auto SearchSettings = DuplicateObject(CrvSettings, GetTransientPackage());
-	// disable recursion for incoming references, too expensive
-	SearchSettings->bIsRecursive = true;
-	SearchSettings->bWalkObjectProperties = false;
-	UE_CLOG(SearchSettings->bDebugEnabled, LogCrv, Log, TEXT("%sFinding Incoming References for '%s' >>"), *Indent, *GetDebugName(RootObject));
-	const auto bDebugEnabled = SearchSettings->bDebugEnabled;
-	const auto SearchIndent = FString::ChrN(Depth + 1, TEXT('\t'));
-	UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("%s FindInRefs: %s"), *SearchIndent, *GetDebugName(RootObject));
-
-	const EReferenceChainSearchMode SearchMode = SearchSettings->GetSearchModeIncoming();
-	UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("%sFindInRefs: %s [Mode: %s]"), *SearchIndent, *GetDebugName(RootObject), *LexToString(SearchMode));
-	TSet<UObject*> TargetObjects;
-	TargetObjects.Add(RootObject);
-	TargetObjects.Append(Search::FindOwnedObjects(RootObject));
-
-	const FReferenceChainSearch RefChainSearch(TargetObjects.Array(), SearchMode);
-	auto ReferenceChains = RefChainSearch.GetReferenceChains();
-	for (auto TargetObject : TargetObjects)
-	{
-		auto GraphNode = FindGraphNode(ReferenceChains, TargetObject);
-		if (!GraphNode)
-		{
-			UE_CLOG(bDebugEnabled, LogCrv, Error, TEXT("%sFindInRefs: No Graph Node for '%s'"), *SearchIndent, *GetDebugName(RootObject));
-			continue;
-		}
-		Visited.Add(TargetObject);
-		for (const auto InRef : GraphNode->ReferencedByObjects)
-		{
-			if (auto InRefObject = InRef->ObjectInfo->TryResolveObject())
-			{
-				UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("%sIncoming Reference: %s"), *SearchIndent, *GetDebugName(InRefObject));
-				if (!Visited.Contains(InRefObject))
-				{
-					Visited.Add(InRefObject);
-					if (CanDisplayReference(RootObject, InRefObject))
-					{
-						LeafObjects.Add(InRefObject);
-					}
-				}
-			}
-		}
-	}
-
-	FilterRefs(RootObject, LeafObjects);
-	UE_CLOG(CrvSettings->bDebugEnabled, LogCrv, Log, TEXT("%sFinding Incoming References for '%s' [LeafObjects: %d] <<"), *Indent, *GetDebugName(RootObject), LeafObjects.Num());
 }

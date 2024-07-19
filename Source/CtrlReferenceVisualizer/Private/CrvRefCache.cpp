@@ -8,192 +8,282 @@
 
 #define LOCTEXT_NAMESPACE "ReferenceVisualizer"
 
-using namespace CRV;
+using namespace CtrlRefViz;
 
-void FCrvRefCache::Invalidate(const FString& Reason)
+bool UCrvRefCache::HasValues() const
 {
-	if (bCached || Outgoing.Num() > 0 || Incoming.Num() > 0)
-	{
-		const auto bDebugEnabled = GetDefault<UCrvSettings>()->bDebugEnabled;
-		UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("Invalidating cache... %s"), *Reason);
-	}
-	RootObjects.Empty();
-	Outgoing.Reset();
-	Incoming.Reset();
+	return WeakRootObjects.Num() > 0 || Outgoing.Num() > 0 || Incoming.Num() > 0;
+}
+
+void UCrvRefCache::Reset(const FString& Reason)
+{
 	bCached = false;
 	bHadValidItems = false;
+	WeakRootObjects.Reset();
+	Outgoing.Reset();
+	Incoming.Reset();
+	UE_CLOG(FCrvModule::IsDebugEnabled(), LogCrv, Log, TEXT("Cache reset... %s"), *Reason);
 }
 
-FCrvWeakSet ToWeakSet(FCrvSet& In)
+void UCrvRefCache::Invalidate(const FString& Reason)
 {
-	FCrvWeakSet Out;
-	Out.Reserve(In.Num());
-	for (const auto Object : In)
+	UE_CLOG(FCrvModule::IsDebugEnabled(), LogCrv, Log, TEXT("Invalidating cache..."));
+	Reset(Reason);
+	ScheduleUpdate();
+}
+
+bool UCrvRefCache::Contains(const UObject* Object) const
+{
+	return WeakRootObjects.Contains(Object);
+}
+
+TSet<UObject*> UCrvRefCache::GetReferences(const UObject* Object, const ECrvDirection Direction)
+{
+	static TSet<UObject*> Empty;
+	if (!Contains(Object)) { return Empty; }
+	const auto Cached = GetValidCached(Direction);
+	if (const auto Found = Cached.Find(Object))
 	{
-		Out.Add(Object);
+		return *Found;
+	} else
+	{
+		return Empty;
 	}
-	return MoveTemp(Out);
 }
 
-FCrvSet ResolveWeakSet(const FCrvWeakSet& Set, bool& bFoundInvalid)
+FCrvSet UCrvRefCache::GenerateAllRootObjects()
 {
-	FCrvSet ValidPointers;
-	ValidPointers.Reserve(Set.Num());
-	bFoundInvalid = false;
-	for (const auto LinkedObject : Set)
+	FCrvSet All;
+	for (TObjectIterator<UReferenceVisualizerComponent> It; It; ++It)
 	{
-		if (LinkedObject.IsValid())
+		if (const auto Item = *It)
 		{
-			ValidPointers.Add(LinkedObject.Get());
-		}
-		else
-		{
-			bFoundInvalid = true;
+			if (Item->HasAnyFlags(RF_ClassDefaultObject))
+			{
+				continue;
+			}
+			if (const auto Owner = Item->GetOwner())
+			{
+				All.Add(Owner);
+			}
 		}
 	}
-	return MoveTemp(ValidPointers);
+	return MoveTemp(All);
 }
 
-FCrvSet ResolveWeakSet(const FCrvWeakSet& Set)
+FCrvSet UCrvRefCache::GenerateRootObjects()
 {
-	bool bFoundInvalid = false;
-	return ResolveWeakSet(Set, bFoundInvalid);
-}
-
-FCrvObjectGraph ResolveWeakMap(const FCrvWeakObjectGraph& Graph, bool& bFoundInvalid)
-{
-	FCrvObjectGraph ValidItems;
-	ValidItems.Reserve(Graph.Num());
-	bFoundInvalid = false;
-	for (const auto [Object, WeakSetPtrs] : Graph)
+	static FCrvSet Empty;
+	switch (GetDefault<UCrvSettings>()->Mode)
 	{
-		if (!Object.IsValid())
+		case ECrvMode::OnlySelected:
 		{
-			bFoundInvalid = true;
-			continue;
+			return FCrvRefSearch::GetSelectionSet();
 		}
-		ValidItems.Add(Object.Get(), ResolveWeakSet(WeakSetPtrs));
+		case ECrvMode::SelectedOrAll:
+		{
+			auto SelectionSet = FCrvRefSearch::GetSelectionSet();
+			if (SelectionSet.Num() > 0)
+			{
+				return MoveTemp(SelectionSet);
+			}
+			return GenerateAllRootObjects();
+		}
+		case ECrvMode::All:
+		{
+			return GenerateAllRootObjects();
+		}
+		default:
+		{
+			return Empty;
+		}
 	}
-	return MoveTemp(ValidItems);
 }
 
-FCrvObjectGraph ResolveWeakMap(const FCrvWeakObjectGraph& Graph)
+void UCrvRefCache::UpdateCache()
 {
-	bool bFoundInvalid = false;
-	return ResolveWeakMap(Graph, bFoundInvalid);
+	GEditor->GetTimerManager()->ClearTimer(UpdateCacheNextTickHandle);
+	FillCache(GenerateRootObjects());
 }
 
-FCrvObjectGraph FCrvRefCache::GetValidCached(const bool bIsOutgoing)
+void UCrvRefCache::ScheduleUpdate()
 {
-	if (!bCached)
+	GEditor->GetTimerManager()->ClearTimer(UpdateCacheNextTickHandle);
+	auto WeakThis = TWeakObjectPtr<UCrvRefCache>(this);
+	UpdateCacheNextTickHandle = GEditor->GetTimerManager()->SetTimerForNextTick([WeakThis]()
 	{
-		return {};
-	}
-	const auto Cached = bIsOutgoing ? Outgoing : Incoming;
+		if (WeakThis.IsValid())
+		{
+			WeakThis->UpdateCache();
+		}
+	});
+}
+
+FCrvObjectGraph UCrvRefCache::GetValidCached(const ECrvDirection Direction)
+{
+	static FCrvObjectGraph Empty;
+	if (!bCached) { return Empty; }
+
+	const auto Cached = Direction == ECrvDirection::Outgoing ? Outgoing : Incoming;
 	bool bFoundInvalid = false;
-	auto ValidCached = ResolveWeakMap(Cached, bFoundInvalid);
+	auto ValidCached = ResolveWeakGraph(Cached, bFoundInvalid);
 	if (bFoundInvalid)
 	{
-		Invalidate(FString::Printf(TEXT("Invalid %s references"), bIsOutgoing ? TEXT("Outgoing") : TEXT("Incoming")));
+		Invalidate(FString::Printf(TEXT("Invalid %s references"), Direction == ECrvDirection::Outgoing ? TEXT("Outgoing") : TEXT("Incoming")));
 	}
 	return MoveTemp(ValidCached);
 }
 
-void FCrvRefCache::FillReferences(const UObject* InRootObject, FCrvWeakSet& LinkedObjects, bool bIsOutgoing)
-{
-	if (!IsValid(InRootObject))
-	{
-		Invalidate(FString::Printf(TEXT("FillReferences: Invalid RootObject: %s "), *GetDebugName(InRootObject)));
-		return;
-	}
-	const auto bDebugEnabled = GetDefault<UCrvSettings>()->bDebugEnabled;
-	UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("FillReferences cache... RootObject %s | %s"), *GetDebugName(InRootObject), bIsOutgoing ? TEXT("Outgoing") : TEXT("Incoming"));
-	const auto RootObject = const_cast<UObject*>(InRootObject);
-	TSet<UObject*> Visited;
-	TSet<UObject*> Found;
-	FCrvRefSearch::FindRefs(RootObject, Found, Visited, bIsOutgoing);
-	LinkedObjects.Reserve(LinkedObjects.Num() + Found.Num());
-	for (const auto LinkedObject : Found)
-	{
-		LinkedObjects.Add(LinkedObject);
-	}
-	LinkedObjects.Compact();
-}
 
-template <typename T>
-bool AreSetsEqual(const T& Set, const T& RHS)
-{
-	return Set.Num() == RHS.Num() && Set.Difference(RHS).Num() == 0 && RHS.Difference(Set).Num() == 0;
-}
-
-bool HasValidItems(const FCrvWeakObjectGraph& CachedItems)
+bool HasValidItems(const FCrvWeakGraph& CachedItems)
 {
 	for (const auto& [WeakObject, Items] : CachedItems)
 	{
-		if (WeakObject.IsValid())
+		if (!WeakObject.IsValid())
 		{
-			if (Items.Num() > 0)
+			continue;
+		}
+
+		if (Items.Num() > 0)
+		{
+			if (Algo::AnyOf(Items, [](const TWeakObjectPtr<UObject>& Item) { return Item.IsValid(); }))
 			{
-				return Algo::AnyOf(Items, [](const TWeakObjectPtr<UObject>& Item)
-				{
-					return Item.IsValid();
-				});
+				return true;
 			}
 		}
 	}
 	return false;
 }
 
-void FCrvRefCache::FillCache(FCrvSet InRootObjects, const bool bMultiple)
+void UCrvRefCache::AutoAddComponents(const FCrvSet& InRootObjects)
 {
-	if (!AreSetsEqual(ResolveWeakSet(RootObjects), InRootObjects))
+	const auto bAutoAddComponents = GetDefault<UCrvSettings>()->GetAutoAddComponents();
+	if (!bAutoAddComponents && AutoCreatedComponents.Num() == 0) { return; }
+	// Remove Components
 	{
-		Invalidate(FString::Printf(TEXT("FillCache: RootObjects Changed")));
-		RootObjects = ToWeakSet(InRootObjects);
-	}
-
-	for (const auto RootObject : RootObjects)
-	{
-		if (!RootObject.IsValid())
+		TSet<UReferenceVisualizerComponent*> ToRemove;
+		auto CurrentAutoCreatedComponents = AutoCreatedComponents;
+		for (auto Item : CurrentAutoCreatedComponents)
 		{
-			Invalidate(FString::Printf(TEXT("FillCache: Invalid RootObject: %s"), *GetDebugName(RootObject.Get())));
-			return;
+			if (!Item.IsValid())
+			{
+				AutoCreatedComponents.Remove(Item);
+				bCached = false;
+				continue;
+			}
+
+			if (!bAutoAddComponents || !InRootObjects.Contains(Item->GetOwner()))
+			{
+				AutoCreatedComponents.Remove(Item);
+				bCached = false;
+				ToRemove.Add(Item.Get());
+			}
+		}
+
+		for (const auto Item : ToRemove)
+		{
+			const auto Owner = Item->GetOwner();
+			Owner->RemoveOwnedComponent(Item);
+			if (IsValid(Item))
+			{
+				Item->DestroyComponent();
+			}
 		}
 	}
 
-	if (bCached)
+	if (!bAutoAddComponents) { return; }
+	auto AddComponent = [this](AActor* Actor)
 	{
-		return;
+		if (Actor->FindComponentByClass<UReferenceVisualizerComponent>())
+		{
+			return; // already has component
+		}
+		bCached = false;
+		auto* DebugComponent = Cast<UReferenceVisualizerComponent>(
+			Actor->AddComponentByClass(
+				UReferenceVisualizerComponent::StaticClass(),
+				false,
+				FTransform::Identity,
+				false
+			)
+		);
+
+		if (!DebugComponent) { return; }
+		AutoCreatedComponents.Add(DebugComponent);
+		Actor->AddOwnedComponent(DebugComponent);
+		if (!DebugComponent->IsRegistered())
+		{
+			DebugComponent->RegisterComponent();
+		}
+	};
+
+	for (const auto Item : InRootObjects)
+	{
+		ensure(Item != nullptr);
+		if (const auto Actor = Cast<AActor>(Item))
+		{
+			AddComponent(Actor);
+		}
+		else if (auto OuterActor = Item->GetTypedOuter<AActor>())
+		{
+			AddComponent(OuterActor);
+		}
+	}
+}
+
+void UCrvRefCache::FillCache(const FCrvSet& InRootObjects)
+{
+	if (bCached && !AreSetsEqual(ResolveWeakSet(WeakRootObjects), InRootObjects))
+	{
+		Reset(FString::Printf(TEXT("FillCache: RootObjects Changed")));
 	}
 
 	const auto Config = GetDefault<UCrvSettings>();
-	const auto bDebugEnabled = Config->bDebugEnabled;
-	for (const auto RootObjectWeak : RootObjects)
-	{
-		if (Config->bShowOutgoingReferences)
-		{
-			FillReferences(RootObjectWeak.Get(), Outgoing.FindOrAdd(RootObjectWeak), true);
-		}
-		else
-		{
-			Outgoing.Empty();
-		}
+	AutoAddComponents(InRootObjects);
+	WeakRootObjects = ToWeakSet(InRootObjects);
+	WeakRootObjects.Compact();
+	const auto RootObjects = InRootObjects;
 
-		if (Config->bShowIncomingReferences && !bMultiple)
-		{
-			FillReferences(RootObjectWeak.Get(), Incoming.FindOrAdd(RootObjectWeak), false);
-		}
-		else
-		{
-			Incoming.Empty();
-		}
+	if (bCached)
+	{
+		UE_CLOG(FCrvModule::IsDebugEnabled(), LogCrv, Log, TEXT("Cache already filled. RootObjects: %d, Outgoing: %d, Incoming: %d"), RootObjects.Num(), Outgoing.Num(), Incoming.Num());
+		return;
+	}
+
+	if (Config->bShowOutgoingReferences)
+	{
+		FCrvObjectGraph OutRefs;
+		FCrvRefSearch::FindOutRefs(RootObjects, OutRefs);
+		Outgoing = ToWeakGraph(OutRefs);
+		Outgoing.Compact();
+	}
+	else
+	{
+		Outgoing.Reset();
+	}
+
+	if (Config->bShowIncomingReferences)
+	{
+		FCrvObjectGraph InRefs;
+		FCrvRefSearch::FindInRefs(RootObjects, InRefs);
+		Incoming = ToWeakGraph(InRefs);
+		Incoming.Compact();
+	}
+	else
+	{
+		Incoming.Reset();
 	}
 
 	if (!bHadValidItems)
 	{
-		// UE_CLOG(bDebugEnabled, LogCrv, Log, TEXT("FillReferences Cache has %d valid items."), CachedItems.Num());
 		bHadValidItems = HasValidItems(Outgoing) || HasValidItems(Incoming);
 	}
 
-	bCached = true;
+	if (OnCacheUpdated.IsBound())
+	{
+		OnCacheUpdated.Broadcast();
+	}
+
+	bCached = HasValues();
+	UE_CLOG(FCrvModule::IsDebugEnabled(), LogCrv, Log, TEXT("Cache filled: RootObjects: %d, Outgoing: %d, Incoming: %d"), RootObjects.Num(), Outgoing.Num(), Incoming.Num());
 }

@@ -2,10 +2,10 @@
 
 #pragma once
 
+#include "CrvUtils.h"
 #include "CtrlReferenceVisualizer.h"
 #include "Components/TextRenderComponent.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
-#include "CrvUtils.h"
 #include "CrvSampleFloorBase.generated.h"
 
 UENUM(meta=(Bitflags, UseEnumValuesAsMaskValuesInEditor = "true"))

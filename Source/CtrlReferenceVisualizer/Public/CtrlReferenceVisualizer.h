@@ -1,27 +1,23 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "CrvRefCache.h"
 #include "ReferenceVisualizerComponent.h"
 #include "HAL/IConsoleManager.h"
-
-#include "CrvRefCache.h"
 #include "Modules/ModuleManager.h"
 
 class UToolMenu;
 class FCrvDebugVisualizer;
+class UReferenceVisualizerComponent;
 class UCrvSettings;
+class UCrvRefCache;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogCrv, Log, All);
 
-using FCrvSet = TSet<TObjectPtr<UObject>>;
-using FCrvWeakSet = TSet<TWeakObjectPtr<>>;
-using FCrvObjectGraph = TMap<TObjectPtr<UObject>, FCrvSet>;
-using FCrvWeakObjectGraph = TMap<TWeakObjectPtr<>, FCrvWeakSet>;
 class FCrvModule : public IModuleInterface
 {
 public:
-	mutable FCrvRefCache MenuCache;
-	void MakeReferenceListSubMenu(UToolMenu* SubMenu, bool bFindOutRefs) const;
+	void MakeReferenceListSubMenu(UToolMenu* SubMenu, ECrvDirection Direction) const;
 	void SelectReference(UObject* Object);
 	void InitActorMenu() const;
 	void MakeActorOptionsSubmenu(UToolMenu* Menu) const;
@@ -35,13 +31,6 @@ public:
 	virtual void ShutdownModule() override;
 	/** end IModuleInterface implementation */
 
-	virtual void RegisterVisualizers();
-	virtual void UnregisterVisualizers();
-	void Refresh(bool bForceRefresh = true);
-
-	void QueueRefresh(bool bForceRefresh = true);
-
-	static TSharedPtr<FCrvDebugVisualizer> GetDefaultVisualizer();
 	virtual void AddTargetComponentClass(class UClass* Class);
 
 	/**
@@ -65,24 +54,13 @@ public:
 		return FModuleManager::Get().IsModuleLoaded("CtrlReferenceVisualizer");
 	}
 
-protected:
 	static bool IsEnabled();
 	static bool IsDebugEnabled();
-	void OnSelectionChanged(UObject* Object);
-	void RefreshSelection();
-	void OnSettingsModified(UObject* Object, FProperty* Property);
-	void InitCategories();
-	bool CreateDebugComponentsForActors(TArray<AActor*> Actors);
-	void DestroyStaleDebugComponents(const TArray<AActor*>& CurrentActorSelection);
-	bool HasDebugComponentForActor(const AActor* Actor) const;
-	void DestroyAllCreatedComponents();
+	
+protected:
+	static void InitCategories();
 	FToolMenuEntry GetSettingsMenuEntry() const;
-	bool bDidRegisterVisualizers = false;
-	bool bIsRefreshingSelection = false;
-	FTimerHandle RefreshTimerHandle;
-	FDelegateHandle QueuedRefreshHandle;
 	TArray<FName> RegisteredClasses;
 	FDelegateHandle SettingsModifiedHandle;
-	TArray<TWeakObjectPtr<UReferenceVisualizerComponent>> CreatedDebugComponents;
 };
 

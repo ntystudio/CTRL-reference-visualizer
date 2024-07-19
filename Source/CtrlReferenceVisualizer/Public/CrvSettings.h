@@ -1,18 +1,111 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
-#include "Engine/DeveloperSettings.h"
 #include "Engine/DeveloperSettingsBackedByCVars.h"
+#include "Templates/TypeHash.h"
 #include "UObject/ReferenceChainSearch.h"
 
 #include "CrvSettings.generated.h"
 
 UENUM()
-enum class ECrvLineStyle: uint8
+enum class ECrvDirection: uint8
+{
+	Incoming,
+	Outgoing,
+};
+
+UENUM()
+enum class ECrvMode: uint8
+{
+	OnlySelected, // Only show references to/from the selected actor or component
+	SelectedOrAll, // Show references to/from the selected actor or component, or all references if nothing is selected
+	All, // Show all references
+};
+
+UENUM()
+enum class ECrvLineType: uint8
 {
 	Dash,
 	Arrow,
 };
+
+USTRUCT()
+struct FCrvLineStyle
+{
+	GENERATED_BODY()
+
+	FCrvLineStyle() = default;
+
+	FCrvLineStyle(
+		const ECrvLineType LineType,
+		const FLinearColor LineColor,
+		const FLinearColor LineColorComponent,
+		const FLinearColor LineColorObject,
+		const float LineThickness,
+		const float ArrowSize,
+		const ESceneDepthPriorityGroup DepthPriority
+	)
+		: LineType(LineType),
+		LineColor(LineColor),
+		LineColorComponent(LineColorComponent),
+		LineColorObject(LineColorObject),
+		LineThickness(LineThickness),
+		ArrowSize(ArrowSize),
+		DepthPriority(DepthPriority) {}
+
+	UPROPERTY(Config, EditAnywhere, Category = "Style | General")
+	ECrvLineType LineType = ECrvLineType::Arrow;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Style | General", DisplayName = "Line Color")
+	FLinearColor LineColor = FLinearColor::Green;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Style | General", DisplayName = "Line Color (Component)")
+	FLinearColor LineColorComponent = FColor::Emerald;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Style | General", DisplayName = "Line Color (Object)")
+	FLinearColor LineColorObject = FColor::Cyan;
+	
+	UPROPERTY(Config, EditAnywhere, Category = "Style | General", meta = (ClampMin = "0", UIMin = "0", UIMax = "10", EditCondition = "LineType != ECrvLineStyle::Dash"))
+	float LineThickness = 2.f;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Style | General", meta = (ClampMin = "0", UIMin = "0", UIMax = "100", EditCondition = "LineType == ECrvLineStyle::Arrow"))
+	float ArrowSize = 10.f;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Style | General")
+	TEnumAsByte<ESceneDepthPriorityGroup> DepthPriority = ESceneDepthPriorityGroup::SDPG_Foreground;
+
+	friend bool operator==(const FCrvLineStyle& Lhs, const FCrvLineStyle& RHS)
+	{
+		return Lhs.LineType == RHS.LineType
+			&& Lhs.LineColor == RHS.LineColor
+			&& Lhs.LineColorComponent == RHS.LineColorComponent
+			&& Lhs.LineColorObject == RHS.LineColorObject
+			&& Lhs.LineThickness == RHS.LineThickness
+			&& Lhs.ArrowSize == RHS.ArrowSize
+			&& Lhs.DepthPriority == RHS.DepthPriority;
+	}
+
+	friend bool operator!=(const FCrvLineStyle& Lhs, const FCrvLineStyle& RHS)
+	{
+		return !(Lhs == RHS);
+	}
+
+	friend uint32 GetTypeHash(const FCrvLineStyle& Arg)
+	{
+		uint32 Hash = HashCombine(GetTypeHash(Arg.LineType), GetTypeHash(Arg.LineColor));
+		Hash = HashCombine(Hash, GetTypeHash(Arg.LineColorComponent));
+		Hash = HashCombine(Hash, GetTypeHash(Arg.LineColorObject));
+		Hash = HashCombine(Hash, GetTypeHash(Arg.LineThickness));
+		Hash = HashCombine(Hash, GetTypeHash(Arg.ArrowSize));
+		Hash = HashCombine(Hash, GetTypeHash(Arg.DepthPriority));
+		return Hash;
+	}
+
+	static FCrvLineStyle DefaultOutgoingLineStyle;
+
+	static FCrvLineStyle DefaultIncomingLineStyle;
+};
+
 
 USTRUCT()
 struct FCrvStyleSettings
@@ -22,28 +115,10 @@ struct FCrvStyleSettings
 	FCrvStyleSettings();
 
 	UPROPERTY(Config, EditAnywhere, Category = "Style | General")
-	ECrvLineStyle LineStyle = ECrvLineStyle::Arrow;
+	FCrvLineStyle LineStyleOutgoing = FCrvLineStyle::DefaultOutgoingLineStyle;
 	
 	UPROPERTY(Config, EditAnywhere, Category = "Style | General")
-	ECrvLineStyle LineStyleIncoming = ECrvLineStyle::Dash;
-
-	UPROPERTY(Config, EditAnywhere, Category = "Style | General", DisplayName = "Line Color (Outgoing)")
-	FLinearColor LineColor = FLinearColor::Green;
-
-	UPROPERTY(Config, EditAnywhere, Category = "Style | General", DisplayName = "Line Color (Outgoing)")
-	FLinearColor LineColorComponent = FLinearColor(FColor::Emerald);
-
-	UPROPERTY(Config, EditAnywhere, Category = "Style | General", DisplayName = "Line Color (Outgoing)")
-	FLinearColor LineColorObject = FLinearColor(FColor::Cyan);
-	
-	UPROPERTY(Config, EditAnywhere, Category = "Style | General", DisplayName = "Line Color (Incoming)")
-	FLinearColor LineColorIncoming = FLinearColor::Blue;
-
-	UPROPERTY(Config, EditAnywhere, Category = "Style | General", meta = (ClampMin = "0", UIMin = "0", UIMax = "10", EditCondition = "LineStyle != ECrvLineStyle::Dash"))
-	float LineThickness = 2.f;
-
-	UPROPERTY(Config, EditAnywhere, Category = "Style | General", meta = (ClampMin = "0", UIMin = "0", UIMax = "100", EditCondition = "LineStyle == ECrvLineStyle::Arrow"))
-	float ArrowSize = 10.f;
+	FCrvLineStyle LineStyleIncoming = FCrvLineStyle::DefaultIncomingLineStyle;
 
 	/* Draw circles around current target & references. */
 	UPROPERTY(Config, EditAnywhere, Category = "Style | Target Circles")
@@ -65,6 +140,13 @@ struct FCrvStyleSettings
 	)
 	float CircleResolution = 32.f;
 
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		Category = "Style | Target Circles",
+		meta = (ClampMin = "0", UIMin = "0", UIMax = "10", EditCondition = "bDrawTargetCircles")
+	)
+	float CircleLineThickness = 1.f;
 	/* Circle around the currently selected actor or scene component */
 	UPROPERTY(Config, EditAnywhere, Category = "Style | Target Circles", meta = (EditCondition = "bDrawTargetCircles"))
 	FLinearColor CurrentCircleColor = FLinearColor::Gray;
@@ -119,7 +201,7 @@ enum class EReferenceChainSearchMode_K2: uint32
 	PrintAllResults = 1 << 17,
 };
 
-namespace CRV
+namespace CtrlRefViz
 {
 	inline FString LexToString(const EReferenceChainSearchMode_K2 Mode)
 	{
@@ -174,6 +256,9 @@ public:
 	UFUNCTION()
 	void CleanTargets();
 
+	bool IsEnabled() const;
+	bool GetAutoAddComponents() const;
+
 	/* Whether the reference viewer display is enabled */
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ConsoleVariable = "ctrl.ReferenceVisualizer"))
 	bool bIsEnabled = true;
@@ -181,13 +266,24 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "General", meta=(MultiLine=true))
 	FText Help;
 
+	UPROPERTY(Config, EditAnywhere, Category = "General")
+	ECrvMode Mode = ECrvMode::SelectedOrAll;
+
+	// automatically add/remove ReferenceVisualizerComponent to actors
+	UPROPERTY(Config, EditAnywhere, Category = "General")
+	bool bAutoAddComponents = true;
+
+	// show recursive references to/from the selected actor or component
+	// UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ClampMin = "1", UIMin = "1", UIMax = "100", EditCondition = "Mode == ECrvMode::OnlySelected || Mode == ECrvMode::SelectedOrAll"))
+	// int32 Depth = 1;
+
 	UFUNCTION(BlueprintCallable, Exec, CallInEditor)
 	void Documentation() const;
 
 	UPROPERTY(Config, EditAnywhere, Category = "General", DisplayName = "Visualize Outgoing References")
 	bool bShowOutgoingReferences = true;
 
-	UPROPERTY(Config, EditAnywhere, Category = "General", DisplayName = "Visualize Incoming References (Slow)")
+	UPROPERTY(Config, EditAnywhere, Category = "General", DisplayName = "Visualize Incoming References (Potentially Slow)")
 	bool bShowIncomingReferences = true;
 
 	UPROPERTY(Config, EditAnywhere, Category = "General", DisplayName = "Move Camera to Reference On Select")
@@ -212,9 +308,9 @@ public:
 	/* Include recursive references to child actors and components */
 	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
 	bool bIsRecursive = true;
-	/* Include references from parent actor, rather than just the selected component */
-	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
-	bool bAlwaysIncludeReferencesFromParent = false;
+	// /* Include references from parent actor, rather than just the selected component */
+	// UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
+	// bool bAlwaysIncludeReferencesFromParent = false;
 
 	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
 	bool bShowComponents = true;
@@ -222,14 +318,14 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
 	bool bShowObjects = false;
 
-	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering", meta = (EditCondition = "bIsRecursive"))
-	bool bWalkComponents = true;
-
-	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering", meta = (EditCondition = "bIsRecursive"))
-	bool bWalkSceneChildComponents = true;
-
-	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering", meta = (EditCondition = "bIsRecursive"))
-	bool bWalkChildActors = true;
+	// UPROPERTY(Config, EditAnywhere, Category = "General|Filtering", meta = (EditCondition = "bIsRecursive"))
+	// bool bWalkComponents = true;
+	//
+	// UPROPERTY(Config, EditAnywhere, Category = "General|Filtering", meta = (EditCondition = "bIsRecursive"))
+	// bool bWalkSceneChildComponents = true;
+	//
+	// UPROPERTY(Config, EditAnywhere, Category = "General|Filtering", meta = (EditCondition = "bIsRecursive"))
+	// bool bWalkChildActors = true;
 
 	UPROPERTY(Config, EditAnywhere, Category = "General|Filtering")
 	bool bWalkObjectProperties = true;
@@ -248,14 +344,11 @@ public:
 	UPROPERTY(EditAnywhere, AdvancedDisplay, Category = "General")
 	bool bRefreshEnabled = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category = "General", meta = (Bitmask, BitmaskEnum = "/Script/CtrlReferenceVisualizer.EReferenceChainSearchMode_K2"))
-	int32 ReferenceChainSearchModeIncoming = static_cast<int32>(EReferenceChainSearchMode_K2::Longest) | static_cast<int32>(EReferenceChainSearchMode_K2::Direct);
-
-	EReferenceChainSearchMode GetSearchModeIncoming() const;
-
 	/* Delegate called when this settings object is modified */
 	DECLARE_MULTICAST_DELEGATE_TwoParams(UCrvSettingsModified, UObject*, FProperty*);
 	UCrvSettingsModified OnModified;
+
+	FCrvLineStyle GetLineStyle(ECrvDirection Direction) const;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;

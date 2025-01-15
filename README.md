@@ -71,3 +71,12 @@ Contributions from the community are welcome! If you decide to to contribute, we
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+
+----
+
+> [!Tip] 
+> # NTY Studio Plugins
+>
+> * [� Unicode Browser](https://github.com/ntystudio/UnicodeBrowser)
+> * [Extended State Tree](https://github.com/ntystudio/ExtendedStateTree)
+> * [Reference Visualizer](https://github.com/ntystudio/CTRL-reference-visualizer)

@@ -2,7 +2,7 @@
 <br/>
 <br/>
 
-CTRL Documentable is part of the [NTY.studio](https://www.nty.studio/) CTRL Framework, a library of utility plugins for Unreal Engine.
+CTRL Reference Visualizer is part of the [NTY.studio](https://www.nty.studio/) CTRL Framework, a library of utility plugins for Unreal Engine.
 
 ## Overview
 CTRL Reference Visualizer is an editor plugin for Unreal Engine 5 that enables level designers to see outgoing and incoming actor references for actors, components and objects in the world.

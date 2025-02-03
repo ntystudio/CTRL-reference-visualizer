@@ -78,5 +78,5 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 > # NTY Studio Plugins
 >
 > * [� Unicode Browser](https://github.com/ntystudio/UnicodeBrowser)
-> * [Extended State Tree](https://github.com/ntystudio/ExtendedStateTree)
+> * [Use State Tree](https://github.com/ntystudio/ExtendedStateTree)
 > * [Reference Visualizer](https://github.com/ntystudio/CTRL-reference-visualizer)

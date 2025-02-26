@@ -79,4 +79,6 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 >
 > * [� Unicode Browser](https://github.com/ntystudio/UnicodeBrowser)
 > * [Use State Tree](https://github.com/ntystudio/ExtendedStateTree)
-> * [Reference Visualizer](https://github.com/ntystudio/CTRL-reference-visualizer)
+> * [CTRL.Reference Visualizer](https://github.com/ntystudio/CTRL.ReferenceVisualizer)
+> * [CTRL.Core](https://github.com/ntystudio/CTRL.Core)
+> * [CTRL.Gas](https://github.com/ntystudio/CTRL.Gas)
